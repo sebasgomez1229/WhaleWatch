@@ -1,0 +1,41 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Whale Watch</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#080c10;color:#e0eaf0;font-family:monospace;min-height:100vh}.header{padding:20px 32px;border-bottom:1px solid #1a2530}.logo{font-size:36px;font-weight:bold;color:#00e5ff;letter-spacing:4px}.logo span{color:#ff6b35}.controls{padding:12px 32px;border-bottom:1px solid #1a2530;display:flex;gap:16px;align-items:center;flex-wrap:wrap}.btn{background:transparent;border:1px solid #00e5ff;color:#00e5ff;padding:8px 20px;cursor:pointer;font-family:monospace;letter-spacing:2px;font-size:12px}.btn:hover{background:#00e5ff;color:#080c10}.status{font-size:11px;color:#4a6070}.feed{max-height:80vh;overflow-y:auto}.trade{padding:14px 32px;border-bottom:1px solid #1a2530;display:grid;grid-template-columns:60px 1fr auto;gap:16px;align-items:center}.trade:hover{background:rgba(0,229,255,0.04)}.trade.whale{border-left:3px solid #00e5ff}.trade.shark{border-left:3px solid #ff6b35}.trade.fish{border-left:3px solid #39ff14}.emoji{font-size:24px;text-align:center}.market{font-size:13px;font-weight:bold;margin-bottom:4px}.meta{font-size:11px;color:#4a6070}.amount{text-align:right;font-size:22px;font-weight:bold}.amount.whale{color:#00e5ff}.amount.shark{color:#ff6b35}.amount.fish{color:#39ff14}.buy{color:#39ff14}.sell{color:#ff6b35}.empty{padding:40px;text-align:center;color:#4a6070}</style></head><body>
+<div class="header"><div class="logo">WHALE<span>WATCH</span></div><div style="font-size:10px;color:#4a6070;letter-spacing:2px;margin-top:4px">POLYMARKET LARGE TRADE TRACKER</div></div>
+<div class="controls">
+<span class="status">Min $: <input id="min" type="number" value="1000" style="background:#0e1318;border:1px solid #1a2530;color:#e0eaf0;padding:4px 8px;width:80px;font-family:monospace"></span>
+<button class="btn" onclick="load()">⟳ REFRESH</button>
+<span class="status" id="info">Press refresh to load</span>
+</div>
+<div class="feed" id="feed"><div class="empty">Press REFRESH to load whale trades</div></div>
+<script>
+function fmt(n){return n>=1000000?'$'+(n/1000000).toFixed(1)+'M':n>=1000?'$'+(n/1000).toFixed(0)+'K':'$'+Math.round(n)}
+function tier(n){return n>=50000?'whale':n>=10000?'shark':'fish'}
+function emoji(t){return{whale:'🐳',shark:'🦈',fish:'🐟'}[t]}
+async function load(){
+  document.getElementById('info').textContent='Loading...';
+  document.getElementById('feed').innerHTML='<div class="empty">Fetching live trades...</div>';
+  try{
+    const r=await fetch('/api/trades');
+    const d=await r.json();
+    const trades=(d.data||d||[]);
+    const min=parseInt(document.getElementById('min').value)||1000;
+    const big=trades.map(t=>{
+      const size=parseFloat(t.size||0);
+      const price=parseFloat(t.price||0);
+      return{...t,usd:size*price};
+    }).filter(t=>t.usd>=min).sort((a,b)=>b.usd-a.usd);
+    document.getElementById('info').textContent=trades.length+' trades scanned, '+big.length+' above $'+min+' — '+new Date().toLocaleTimeString();
+    if(!big.length){document.getElementById('feed').innerHTML='<div class="empty">No trades above minimum size</div>';return;}
+    document.getElementById('feed').innerHTML=big.map(t=>{
+      const t2=tier(t.usd);
+      const side=(t.side||'BUY').toUpperCase();
+      const price=parseFloat(t.price||0);
+      const outcome=t.outcome||(price>=0.5?'YES':'NO');
+      const title=t.title||t.slug?.replace(/-/g,' ')||'Unknown Market';
+      const ts=t.timestamp?new Date(parseInt(t.timestamp)*1000).toLocaleTimeString():'';
+      return'<div class="trade '+t2+'"><div class="emoji">'+emoji(t2)+'</div><div><div class="market">'+title+'</div><div class="meta"><span class="'+(side==='BUY'?'buy':'sell')+'">'+side+'</span> '+outcome+' @ '+(price*100).toFixed(0)+'¢ · '+ts+'</div></div><div class="amount '+t2+'">'+fmt(t.usd)+'</div></div>';
+    }).join('');
+  }catch(e){document.getElementById('feed').innerHTML='<div class="empty">Error: '+e.message+'</div>';}
+}
+load();
+setInterval(load,30000);
+</script></body></html>
