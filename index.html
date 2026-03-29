@@ -1,38 +1,53 @@
-<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Whale Watch</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#080c10;color:#e0eaf0;font-family:monospace;min-height:100vh}.header{padding:20px 32px;border-bottom:1px solid #1a2530}.logo{font-size:36px;font-weight:bold;color:#00e5ff;letter-spacing:4px}.logo span{color:#ff6b35}.controls{padding:12px 32px;border-bottom:1px solid #1a2530;display:flex;gap:16px;align-items:center;flex-wrap:wrap}.btn{background:transparent;border:1px solid #00e5ff;color:#00e5ff;padding:8px 20px;cursor:pointer;font-family:monospace;letter-spacing:2px;font-size:12px}.btn:hover{background:#00e5ff;color:#080c10}.status{font-size:11px;color:#4a6070}.feed{max-height:80vh;overflow-y:auto}.trade{padding:14px 32px;border-bottom:1px solid #1a2530;display:grid;grid-template-columns:60px 1fr auto;gap:16px;align-items:center}.trade:hover{background:rgba(0,229,255,0.04)}.trade.whale{border-left:3px solid #00e5ff}.trade.shark{border-left:3px solid #ff6b35}.trade.fish{border-left:3px solid #39ff14}.emoji{font-size:24px;text-align:center}.market{font-size:13px;font-weight:bold;margin-bottom:4px}.meta{font-size:11px;color:#4a6070}.amount{text-align:right;font-size:22px;font-weight:bold}.amount.whale{color:#00e5ff}.amount.shark{color:#ff6b35}.amount.fish{color:#39ff14}.buy{color:#39ff14}.sell{color:#ff6b35}.empty{padding:40px;text-align:center;color:#4a6070}</style></head><body>
-<div class="header"><div class="logo">WHALE<span>WATCH</span></div><div style="font-size:10px;color:#4a6070;letter-spacing:2px;margin-top:4px">POLYMARKET LARGE TRADE TRACKER</div></div>
-<div class="controls">
-<span class="status">Min $: <input id="min" type="number" value="1000" style="background:#0e1318;border:1px solid #1a2530;color:#e0eaf0;padding:4px 8px;width:80px;font-family:monospace"></span>
-<button class="btn" onclick="load()">⟳ REFRESH</button>
-<span class="status" id="info">Press refresh to load</span>
-</div>
-<div class="feed" id="feed"><div class="empty">Press REFRESH to load whale trades</div></div>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="WhaleWatch"><meta name="theme-color" content="#080c10"><title>Whale Watch</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#080c10;color:#e0eaf0;font-family:monospace;min-height:100vh}.header{padding:16px 20px;border-bottom:1px solid #1a2530;display:flex;justify-content:space-between;align-items:center}.logo{font-size:28px;font-weight:bold;color:#00e5ff;letter-spacing:3px}.logo span{color:#ff6b35}.tabs{display:flex;gap:0;border-bottom:1px solid #1a2530}.tab{flex:1;padding:10px;text-align:center;font-size:11px;letter-spacing:1px;cursor:pointer;color:#4a6070;border-bottom:2px solid transparent}.tab.active{color:#00e5ff;border-bottom:2px solid #00e5ff}.trade{padding:12px 16px;border-bottom:1px solid #1a2530;display:grid;grid-template-columns:50px 1fr auto;gap:10px;align-items:center}.trade.longshot{border-left:3px solid #ff6b35}.trade.value{border-left:3px solid #ffd700}.trade.whale{border-left:3px solid #00e5ff}.trade.million{border-left:3px solid #ff0080;background:rgba(255,0,128,0.05)}.emoji{font-size:22px;text-align:center}.market{font-size:12px;font-weight:bold;margin-bottom:3px;line-height:1.3}.meta{font-size:10px;color:#4a6070;display:flex;gap:6px;flex-wrap:wrap}.odds{padding:2px 6px;border-radius:3px;font-weight:bold;font-size:10px}.odds.low{background:rgba(255,107,53,0.2);color:#ff6b35}.odds.mid{background:rgba(255,215,0,0.2);color:#ffd700}.odds.high{background:rgba(0,229,255,0.2);color:#00e5ff}.payout{color:#39ff14;font-size:10px}.amount{text-align:right}.amount-val{font-size:20px;font-weight:bold}.amount-val.million{color:#ff0080;text-shadow:0 0 10px rgba(255,0,128,0.5)}.amount-val.whale{color:#00e5ff}.amount-val.longshot{color:#ff6b35}.amount-val.value{color:#ffd700}.buy{color:#39ff14}.sell{color:#ff6b35}.controls{padding:10px 16px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #1a2530;flex-wrap:wrap}.btn{background:transparent;border:1px solid #00e5ff;color:#00e5ff;padding:6px 14px;cursor:pointer;font-family:monospace;font-size:11px;letter-spacing:1px}.info{font-size:10px;color:#4a6070}.empty{padding:30px;text-align:center;color:#4a6070;font-size:11px;line-height:2}.feed{max-height:85vh;overflow-y:auto}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#1a2530;border-bottom:1px solid #1a2530}.stat{background:#0e1318;padding:10px 14px}.stat-label{font-size:9px;color:#4a6070;letter-spacing:1px;text-transform:uppercase}.stat-val{font-size:20px;font-weight:bold;color:#00e5ff;margin-top:2px}</style></head>
+<body>
+<div class="header"><div class="logo">WHALE<span>WATCH</span></div><span id="status" style="font-size:10px;color:#4a6070">LOADING...</span></div>
+<div class="stats"><div class="stat"><div class="stat-label">Long Shots</div><div class="stat-val" id="s1" style="color:#ff6b35">0</div></div><div class="stat"><div class="stat-label">Value Bets</div><div class="stat-val" id="s2" style="color:#ffd700">0</div></div><div class="stat"><div class="stat-label">Whales/M$</div><div class="stat-val" id="s3" style="color:#ff0080">0</div></div></div>
+<div class="controls"><button class="btn" onclick="load()">⟳ REFRESH</button><span class="info" id="info"></span></div>
+<div class="feed" id="feed"><div class="empty">Loading...</div></div>
 <script>
-function fmt(n){return n>=1000000?'$'+(n/1000000).toFixed(1)+'M':n>=1000?'$'+(n/1000).toFixed(0)+'K':'$'+Math.round(n)}
-function tier(n){return n>=50000?'whale':n>=10000?'shark':'fish'}
-function emoji(t){return{whale:'🐳',shark:'🦈',fish:'🐟'}[t]}
+function fmt(n){return n>=1000000?'$'+(n/1000000).toFixed(2)+'M':n>=1000?'$'+(n/1000).toFixed(0)+'K':'$'+Math.round(n)}
+function payout(price,usd){const win=usd/price-usd;return'+'+fmt(win)}
+function getTier(usd,price){
+  if(usd>=1000000)return'million';
+  if(usd>=50000)return'whale';
+  if(price<=0.20&&usd>=5000)return'longshot';
+  if(price<=0.50&&usd>=10000)return'value';
+  return null;
+}
+function tierEmoji(t){return{million:'🚨',whale:'🐳',longshot:'🎯',value:'💰'}[t]||''}
 async function load(){
-  document.getElementById('info').textContent='Loading...';
-  document.getElementById('feed').innerHTML='<div class="empty">Fetching live trades...</div>';
+  document.getElementById('status').textContent='UPDATING...';
   try{
     const r=await fetch('/api/trades');
     const d=await r.json();
-    const trades=(d.data||d||[]);
-    const min=parseInt(document.getElementById('min').value)||1000;
-    const big=trades.map(t=>{
-      const size=parseFloat(t.size||0);
+    const trades=(d.data||[]);
+    const interesting=[];
+    trades.forEach(t=>{
       const price=parseFloat(t.price||0);
-      return{...t,usd:size*price};
-    }).filter(t=>t.usd>=min).sort((a,b)=>b.usd-a.usd);
-    document.getElementById('info').textContent=trades.length+' trades scanned, '+big.length+' above $'+min+' — '+new Date().toLocaleTimeString();
-    if(!big.length){document.getElementById('feed').innerHTML='<div class="empty">No trades above minimum size</div>';return;}
-    document.getElementById('feed').innerHTML=big.map(t=>{
-      const t2=tier(t.usd);
+      const usd=parseFloat(t.size||0)*price;
+      const tier=getTier(usd,price);
+      if(tier)interesting.push({...t,usd,price,tier});
+    });
+    interesting.sort((a,b)=>{
+      const order={million:0,whale:1,longshot:2,value:3};
+      return order[a.tier]-order[b.tier]||b.usd-a.usd;
+    });
+    document.getElementById('s1').textContent=interesting.filter(t=>t.tier==='longshot').length;
+    document.getElementById('s2').textContent=interesting.filter(t=>t.tier==='value').length;
+    document.getElementById('s3').textContent=interesting.filter(t=>t.tier==='million'||t.tier==='whale').length;
+    document.getElementById('info').textContent=trades.length+' scanned · '+interesting.length+' interesting · '+new Date().toLocaleTimeString();
+    document.getElementById('status').textContent='LIVE';
+    if(!interesting.length){
+      document.getElementById('feed').innerHTML='<div class="empty">No interesting trades right now.<br>Most activity is high-probability.<br>Check back soon for long shots!</div>';
+      return;
+    }
+    document.getElementById('feed').innerHTML=interesting.map(t=>{
       const side=(t.side||'BUY').toUpperCase();
-      const price=parseFloat(t.price||0);
-      const outcome=t.outcome||(price>=0.5?'YES':'NO');
       const title=t.title||t.slug?.replace(/-/g,' ')||'Unknown Market';
       const ts=t.timestamp?new Date(parseInt(t.timestamp)*1000).toLocaleTimeString():'';
-      return'<div class="trade '+t2+'"><div class="emoji">'+emoji(t2)+'</div><div><div class="market">'+title+'</div><div class="meta"><span class="'+(side==='BUY'?'buy':'sell')+'">'+side+'</span> '+outcome+' @ '+(price*100).toFixed(0)+'¢ · '+ts+'</div></div><div class="amount '+t2+'">'+fmt(t.usd)+'</div></div>';
+      const oddsClass=t.price<=0.20?'low':t.price<=0.50?'mid':'high';
+      const potentialPayout=payout(t.price,t.usd);
+      return'<div class="trade '+t.tier+'"><div class="emoji">'+tierEmoji(t.tier)+'</div><div><div class="market">'+title.slice(0,55)+'</div><div class="meta"><span class="odds '+oddsClass+'">'+(t.price*100).toFixed(0)+'¢</span><span class="payout">'+potentialPayout+' potential</span><span class="'+(side==="BUY"?"buy":"sell")+'">'+side+'</span><span>'+ts+'</span></div></div><div class="amount"><div class="amount-val '+t.tier+'">'+fmt(t.usd)+'</div></div></div>';
     }).join('');
   }catch(e){document.getElementById('feed').innerHTML='<div class="empty">Error: '+e.message+'</div>';}
 }
