@@ -87,6 +87,15 @@ a{color:#00e5ff;text-decoration:none}
 .wc-bet{font-size:9px;color:#4a6070;padding:2px 0;display:flex;justify-content:space-between}
 .wc-bet .buy{color:#39ff14}.wc-bet .sell{color:#ff3366}
 
+/* FILTER BAR */
+.filter-bar{padding:10px 20px;border-bottom:1px solid #1a2530;display:flex;align-items:center;gap:14px;background:#0a0e14;flex-wrap:wrap}
+.fb-label{font-size:9px;color:#4a6070;letter-spacing:1.5px}
+.fb-val{font-size:20px;font-weight:bold;color:#00e5ff;min-width:80px;letter-spacing:1px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:220px;height:5px;background:#1a2530;border-radius:3px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#00e5ff;cursor:pointer;border:2px solid #080c10}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#00e5ff;cursor:pointer;border:2px solid #080c10}
+.fb-ticks{display:flex;justify-content:space-between;width:220px;font-size:7px;color:#253540;margin-top:2px}
+
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#080c10}::-webkit-scrollbar-thumb{background:#1a2530}
 </style>
 </head>
@@ -105,6 +114,17 @@ a{color:#00e5ff;text-decoration:none}
   <div class="tab active" onclick="go('mlb')">⚾ MLB <span class="badge" id="mlb-n"></span></div>
   <div class="tab" onclick="go('war')">🚨 WAR INTEL <span class="badge" id="war-n"></span></div>
   <div class="tab" onclick="go('wallets')">🏆 WALLETS</div>
+</div>
+
+<div class="filter-bar">
+  <div>
+    <div class="fb-label">MIN TRADE SIZE</div>
+    <div class="fb-val" id="min-val">$1.0K</div>
+  </div>
+  <div>
+    <input type="range" id="min-slider" min="1000" max="900000" step="1000" value="1000" oninput="onSlider(this.value)">
+    <div class="fb-ticks"><span>$1K</span><span>$100K</span><span>$250K</span><span>$500K</span><span>$900K</span></div>
+  </div>
 </div>
 
 <div class="panel active" id="p-mlb"><div class="section" id="mlb-list"><div class="empty"><span class="spin"></span> Loading MLB…</div></div></div>
@@ -126,6 +146,16 @@ function go(tab) {
 
 let countdown = 60;
 setInterval(() => { countdown--; if(countdown<=0){countdown=60;refreshAll();} $('cd').textContent=countdown+'s'; }, 1000);
+
+function getMin() { return parseInt($('min-slider').value) || 1000; }
+function onSlider(v) {
+  v = parseInt(v);
+  $('min-val').textContent = fmt(v);
+  // Clear cached MLB trade panels so they re-fetch with new min
+  document.querySelectorAll('.game-trades').forEach(el => { el.dataset.loaded = ''; el.classList.remove('open'); });
+  // Re-fetch war with new min
+  loadWar();
+}
 
 async function refreshAll() {
   $('dot').classList.remove('live');
@@ -201,10 +231,11 @@ async function toggleGameTrades(id, cids) {
   if (el.dataset.loaded) return;
   if (!cids) { el.innerHTML = '<div class="wt-load">No market IDs</div>'; return; }
   try {
-    const r = await fetch('/api/mlb/trades/'+cids);
+    const min = getMin();
+    const r = await fetch(`/api/mlb/trades/${cids}?min=${min}`);
     const trades = await r.json();
     el.dataset.loaded = '1';
-    if (!trades.length) { el.innerHTML = '<div class="wt-load">No trades >= $100</div>'; return; }
+    if (!trades.length) { el.innerHTML = `<div class="wt-load">No trades >= ${fmt(min)}</div>`; return; }
     el.innerHTML = trades.map(tradeRow).join('');
   } catch(e) { el.innerHTML = '<div class="wt-load">Error loading trades</div>'; }
 }
@@ -212,7 +243,8 @@ async function toggleGameTrades(id, cids) {
 // ── WAR INTEL ────────────────────────────────────────────────────────────────
 async function loadWar() {
   try {
-    const r = await fetch('/api/war');
+    const min = getMin();
+    const r = await fetch(`/api/war?min=${min}`);
     const data = await r.json();
     if (data.error) throw new Error(data.error);
     const markets = data.markets || data;
@@ -224,7 +256,7 @@ async function loadWar() {
     let bannerHtml = '';
     if (topWhales.length) {
       bannerHtml = `<div class="whale-banner">
-        <div class="wb-title">🚨 WHALE ALERTS — TRADES OVER $1,000</div>
+        <div class="wb-title">🚨 WHALE ALERTS — TRADES OVER ${fmt(Math.max(min,1000))}</div>
         ${topWhales.map(t => `<div class="wb-row">
           <span><span class="wb-flag">${t.flag||'🎯'}</span> <span class="wb-wallet">${esc(t.wallet)}</span></span>
           <span class="wb-market"><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span> ${esc(t.outcome)} · ${esc(t.title).slice(0,40)}</span>
@@ -245,7 +277,7 @@ async function loadWar() {
       if (tradeCount) {
         tradesHtml = `
           <div class="wm-trades" id="${mid}">
-            <div class="wm-trades-title">TRADES (${tradeCount}) — min $100</div>
+            <div class="wm-trades-title">TRADES (${tradeCount}) — min ${fmt(min)}</div>
             ${m.trades.map(tradeRow).join('')}
           </div>
           <div class="wm-toggle" onclick="event.stopPropagation();$('${mid}').classList.toggle('open')">▼ ${tradeCount} trades</div>`;

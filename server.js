@@ -155,7 +155,7 @@ app.get('/api/mlb/trades/:conditionIds', async (req, res) => {
         timestamp: parseInt(t.timestamp || 0),
         flag: (() => { const u = parseFloat(t.size||0)*parseFloat(t.price||0); return u>=1e6?'🚨':u>=50000?'🐳':u>=5000?'🎯':''; })()
       }))
-      .filter(t => t.usd >= 100)
+      .filter(t => t.usd >= (parseFloat(req.query.min) || 100))
       .sort((a, b) => b.usd - a.usd)
       .slice(0, 30);
     res.json(result);
@@ -167,6 +167,7 @@ const WAR_TAGS = ['iran', 'israel', 'middle-east', 'china', 'ukraine', 'russia',
 const WAR_KW   = ['iran', 'israel', 'war', 'military', 'nuclear', 'russia', 'ukraine', 'china', 'taiwan', 'invade', 'strike', 'bomb', 'missile', 'troops', 'ceasefire', 'regime'];
 
 app.get('/api/war', async (req, res) => {
+  const minTrade = parseFloat(req.query.min) || 100;
   try {
     // 1. Fetch events from all war-related tags in parallel
     const allEvents = await cached('war-events', async () => {
@@ -238,7 +239,7 @@ app.get('/api/war', async (req, res) => {
         title: t.title || '',
         flag: usd >= 1000000 ? '🚨' : usd >= 50000 ? '🐳' : usd >= 5000 ? '🎯' : ''
       };
-      if (usd >= 100) tradesByMarket[cid].push(trade);  // $100 minimum
+      if (usd >= minTrade) tradesByMarket[cid].push(trade);
 
       // Fire mac notification for war whale trades
       checkAndNotify(t);
@@ -251,7 +252,7 @@ app.get('/api/war', async (req, res) => {
 
     // Build top whale trades list across ALL war markets for the alert banner
     const allWarTrades = Object.values(tradesByMarket).flat().sort((a, b) => b.usd - a.usd);
-    const topWhales = allWarTrades.filter(t => t.usd >= 1000).slice(0, 10);
+    const topWhales = allWarTrades.filter(t => t.usd >= Math.max(minTrade, 1000)).slice(0, 10);
 
     // Attach trades to markets
     const result = markets.map(m => ({
