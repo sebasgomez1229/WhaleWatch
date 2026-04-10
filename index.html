@@ -1,333 +1,250 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WhaleWatch</title>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WhaleWatch</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#080c10;color:#e0eaf0;font-family:monospace;min-height:100vh}
-.hdr{padding:12px 20px;border-bottom:1px solid #1a2530;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-.logo{font-size:22px;font-weight:bold;color:#00e5ff;letter-spacing:3px}.logo span{color:#ff6b35}
-.hdr-r{display:flex;align-items:center;gap:10px;font-size:10px;color:#4a6070}
-.dot{width:7px;height:7px;border-radius:50%;background:#4a6070;flex-shrink:0}.dot.live{background:#39ff14;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.new-counter{background:#ff6b35;color:#080c10;font-size:10px;font-weight:bold;padding:3px 10px;border-radius:10px;letter-spacing:1px}
-
-/* SUMMARY */
-.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#1a2530;border-bottom:1px solid #1a2530}
-.s-card{background:#0a0e14;padding:10px 14px}
-.s-label{font-size:8px;color:#4a6070;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px}
-.s-val{font-size:16px;font-weight:bold;color:#00e5ff}
-.s-sub{font-size:8px;color:#4a6070;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tabs{display:flex;border-bottom:1px solid #1a2530}
-.tab{flex:1;padding:10px;text-align:center;font-size:10px;letter-spacing:1.5px;cursor:pointer;color:#4a6070;border-bottom:2px solid transparent;transition:.15s}
-.tab:hover{color:#e0eaf0}.tab.active{color:#00e5ff;border-bottom-color:#00e5ff}
-.badge{background:#ff6b35;color:#080c10;font-size:8px;font-weight:bold;padding:1px 4px;border-radius:2px;margin-left:4px}
-.filter-bar{padding:10px 20px;border-bottom:1px solid #1a2530;display:flex;align-items:center;gap:14px;background:#0a0e14;flex-wrap:wrap}
-.fb-label{font-size:9px;color:#4a6070;letter-spacing:1.5px}
-.fb-val{font-size:18px;font-weight:bold;color:#00e5ff;min-width:70px}
-input[type=range]{-webkit-appearance:none;width:200px;height:5px;background:#1a2530;border-radius:3px;outline:none;cursor:pointer}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#00e5ff;cursor:pointer;border:2px solid #080c10}
-.fb-info{font-size:9px;color:#4a6070}
-.panel{display:none}.panel.active{display:block}
-.section{max-height:82vh;overflow-y:auto;padding:12px 16px}
+*{margin:0;padding:0;box-sizing:border-box}body{background:#080c10;color:#e0eaf0;font-family:monospace;min-height:100vh}
+.hdr{padding:10px 16px;border-bottom:1px solid #1a2530;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+.logo{font-size:20px;font-weight:bold;color:#00e5ff;letter-spacing:3px}.logo span{color:#ff6b35}
+.hdr-r{display:flex;align-items:center;gap:8px;font-size:10px;color:#4a6070}
+.dot{width:7px;height:7px;border-radius:50%;background:#4a6070}.dot.live{background:#39ff14;animation:p 2s infinite}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.4}}
+.nc{background:#ff6b35;color:#080c10;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:8px;display:none}
+.sum{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#1a2530;border-bottom:1px solid #1a2530}
+.sc{background:#0a0e14;padding:8px 12px}.sl{font-size:7px;color:#4a6070;letter-spacing:1.5px;text-transform:uppercase}.sv{font-size:14px;font-weight:bold;color:#00e5ff;margin-top:1px}.ss{font-size:7px;color:#4a6070;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tabs{display:flex;border-bottom:1px solid #1a2530;overflow-x:auto}.tab{padding:8px 12px;text-align:center;font-size:9px;letter-spacing:1px;cursor:pointer;color:#4a6070;border-bottom:2px solid transparent;white-space:nowrap}.tab:hover{color:#e0eaf0}.tab.active{color:#00e5ff;border-bottom-color:#00e5ff}
+.badge{background:#ff6b35;color:#080c10;font-size:7px;font-weight:bold;padding:1px 3px;border-radius:2px;margin-left:3px}
+.fb{padding:8px 16px;border-bottom:1px solid #1a2530;display:flex;align-items:center;gap:12px;background:#0a0e14;flex-wrap:wrap}
+.fbl{font-size:8px;color:#4a6070;letter-spacing:1px}.fbv{font-size:16px;font-weight:bold;color:#00e5ff;min-width:60px}
+input[type=range]{-webkit-appearance:none;width:180px;height:4px;background:#1a2530;border-radius:3px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#00e5ff;cursor:pointer;border:2px solid #080c10}
+.fbi{font-size:9px;color:#4a6070}
+.panel{display:none}.panel.active{display:block}.section{max-height:80vh;overflow-y:auto;padding:10px 14px}
 .empty{padding:30px;text-align:center;color:#4a6070;font-size:11px}
 .spin{display:inline-block;width:9px;height:9px;border:2px solid #1a2530;border-top-color:#00e5ff;border-radius:50%;animation:sp .6s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
-
-/* NEW TRADE FLASH */
-@keyframes flashIn{0%{background:rgba(0,229,255,.15);transform:translateX(-4px)}100%{background:transparent;transform:translateX(0)}}
-.tr-new{animation:flashIn 1.5s ease-out}
-.new-badge{background:#39ff14;color:#080c10;font-size:7px;font-weight:bold;padding:1px 4px;border-radius:2px;margin-left:4px;letter-spacing:.5px}
-
-/* MLB */
-.game{background:#0e1318;border:1px solid #1a2530;margin-bottom:10px;cursor:pointer;transition:.15s}
-.game:hover{border-color:#253540}
-.game-top{padding:12px 14px}
-.game-teams{font-size:13px;font-weight:bold}.game-sub{font-size:9px;color:#4a6070;margin-top:2px}
-.pitchers{font-size:10px;color:#4a6070;margin-top:4px}.pitchers b{color:#e0eaf0}
-.ml-bar{display:flex;height:18px;border-radius:2px;overflow:hidden;margin:6px 0 4px}
-.ml-a{background:rgba(0,229,255,.2);color:#00e5ff;font-size:9px;font-weight:bold;display:flex;align-items:center;padding:0 6px;transition:width .4s}
-.ml-h{background:rgba(255,107,53,.2);color:#ff6b35;font-size:9px;font-weight:bold;display:flex;align-items:center;justify-content:flex-end;padding:0 6px;transition:width .4s}
-.game-meta{font-size:9px;color:#4a6070;display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
-.sharp{background:rgba(255,51,102,.15);border:1px solid #ff3366;color:#ff3366;font-size:8px;padding:1px 5px;letter-spacing:1px;animation:pulse .8s infinite}
-.misprice{background:rgba(255,215,0,.12);border:1px solid #ffd700;color:#ffd700;font-size:8px;padding:1px 5px}
-.ou-pill{font-size:10px;color:#4a6070;margin-top:4px}.ou-pill b{color:#e0eaf0}
-.game-trades{border-top:1px solid #1a2530;padding:8px 14px;display:none}.game-trades.open{display:block}
-.game-expand{font-size:9px;color:#4a6070;padding:2px 14px 8px;text-align:right}
-
+@keyframes flashIn{0%{background:rgba(0,229,255,.12);transform:translateX(-3px)}100%{background:transparent;transform:translateX(0)}}
+.nb{background:#39ff14;color:#080c10;font-size:7px;font-weight:bold;padding:1px 3px;border-radius:2px;margin-left:3px}
+/* MARKET CARD */
+.mc{background:#0e1318;border:1px solid #1a2530;margin-bottom:8px;padding:10px 12px;cursor:pointer;transition:.15s}
+.mc:hover{border-color:#253540}
+.mc-h{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.mc-l{font-size:12px;font-weight:bold;color:#e0eaf0}.mc-o{font-size:18px;font-weight:bold;color:#39ff14}
+.mc-m{font-size:9px;color:#4a6070;display:flex;gap:8px;flex-wrap:wrap;margin-top:3px}
+.mc-ev{font-size:8px;color:#253540;margin-top:2px}
+.mc-w{background:rgba(0,229,255,.1);color:#00e5ff;font-size:7px;padding:1px 4px;border-radius:2px}
+.mc-t{border-top:1px solid #1a2530;margin-top:6px;padding-top:6px;display:none}.mc-t.open{display:block}
 /* TRADE ROW */
-.tr{display:grid;grid-template-columns:22px 1fr auto;gap:6px;padding:5px 0;border-bottom:1px solid #0a0e14;font-size:10px;align-items:center}
-.tr:last-child{border-bottom:none}
-.tr-flag{font-size:13px;text-align:center}
-.tr-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0eaf0;font-size:9px}
-.tr-wallet{color:#4a6070;font-size:8px}.buy{color:#39ff14}.sell{color:#ff3366}
-.tr-right{text-align:right;white-space:nowrap}
-.tr-amt{font-weight:bold}.tr-amt.big{color:#00e5ff}.tr-amt.huge{color:#ff3366}.tr-amt.reg{color:#e0eaf0}
-.tr-sub{font-size:8px;color:#4a6070}
-
-/* WAR */
-.whale-banner{background:rgba(255,51,102,.08);border:1px solid #ff3366;border-left:4px solid #ff3366;margin-bottom:12px;padding:10px 14px}
-.wb-title{font-size:10px;color:#ff3366;letter-spacing:2px;margin-bottom:6px;font-weight:bold}
-.war-market{background:#0e1318;border:1px solid #1a2530;border-left:3px solid #ff3366;margin-bottom:10px;padding:12px 14px;cursor:pointer;transition:.15s}
-.war-market:hover{border-color:#253540}.war-market.mod{border-left-color:#ff6b35}.war-market.low{border-left-color:#4a6070}
-.wm-hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}
-.wm-q{font-size:12px;font-weight:bold;line-height:1.4;flex:1}
-.wm-pct{font-size:22px;font-weight:bold}.wm-pct.hi{color:#ff3366}.wm-pct.mod{color:#ff6b35}.wm-pct.lo{color:#39ff14}
-.wm-meta{font-size:9px;color:#4a6070;display:flex;gap:10px;flex-wrap:wrap}
-.wm-trades{border-top:1px solid #1a2530;margin-top:8px;padding-top:8px;display:none}.wm-trades.open{display:block}
-
-/* ALL WHALES */
-.whale-trade{background:#0e1318;border:1px solid #1a2530;margin-bottom:8px;padding:12px 14px;display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center}
-.whale-trade:hover{border-color:#253540}
-.whale-trade.mil{border-left:3px solid #ff0080;background:rgba(255,0,128,.04)}
-.whale-trade.big{border-left:3px solid #00e5ff}.whale-trade.long{border-left:3px solid #ff6b35}
-.wht-flag{font-size:16px;text-align:center}
-.wht-title{font-size:11px;font-weight:bold;line-height:1.3;margin-bottom:3px}
-.wht-meta{font-size:9px;color:#4a6070;display:flex;gap:8px;flex-wrap:wrap}
-.wht-payout{color:#ffd700;font-size:9px}
-.wht-right{text-align:right}
-.wht-amt{font-size:18px;font-weight:bold}.wht-amt.mil{color:#ff0080}.wht-amt.big{color:#00e5ff}.wht-amt.reg{color:#e0eaf0}
-.wht-odds{font-size:10px;color:#4a6070;margin-top:2px}
-
-/* WALLETS */
-.wallet-card{background:#0e1318;border:1px solid #1a2530;margin-bottom:10px;padding:12px 14px}
-.wc-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-.wc-rank{font-size:16px;margin-right:8px}.wc-name{font-size:12px;font-weight:bold;color:#e0eaf0}
-.wc-addr{font-size:9px;color:#4a6070}.wc-vol{font-size:18px;font-weight:bold;color:#00e5ff}
-.wc-stats{display:flex;gap:14px;font-size:10px;color:#4a6070;margin-bottom:8px}.wc-stats b{color:#e0eaf0}
-.wc-bets{border-top:1px solid #1a2530;padding-top:6px}
-.wc-bet{font-size:9px;color:#4a6070;padding:2px 0;display:flex;justify-content:space-between}
-
+.tr{display:grid;grid-template-columns:20px 1fr auto;gap:5px;padding:4px 0;border-bottom:1px solid #0a0e14;font-size:10px;align-items:center}.tr:last-child{border-bottom:none}
+.tf{font-size:12px;text-align:center}.td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e0eaf0;font-size:9px}
+.tw{color:#4a6070;font-size:8px}.buy{color:#39ff14}.sell{color:#ff3366}
+.ta{text-align:right;white-space:nowrap;font-weight:bold}.ta.b{color:#00e5ff}.ta.h{color:#ff3366}.ta.r{color:#e0eaf0}
+.ts{font-size:7px;color:#4a6070}
+/* SHARP BOX */
+.sb{background:rgba(0,229,255,.05);border:1px solid #00e5ff;border-left:3px solid #00e5ff;padding:8px 12px;margin-bottom:10px}
+.sb-t{font-size:9px;color:#00e5ff;letter-spacing:2px;font-weight:bold;margin-bottom:4px}
+.sb-r{display:flex;justify-content:space-between;font-size:10px;padding:2px 0}
+/* TRENDING */
+.trend{background:rgba(255,107,53,.06);border:1px solid #ff6b35;border-left:3px solid #ff6b35;padding:8px 12px;margin-bottom:10px}
+.trend-t{font-size:9px;color:#ff6b35;letter-spacing:2px;font-weight:bold;margin-bottom:4px}
+/* WHALE CARD */
+.wc{background:#0e1318;border:1px solid #1a2530;margin-bottom:6px;padding:10px 12px;display:grid;grid-template-columns:24px 1fr auto;gap:8px;align-items:center}
+.wc:hover{border-color:#253540}.wc.mil{border-left:3px solid #ff0080;background:rgba(255,0,128,.03)}.wc.big{border-left:3px solid #00e5ff}.wc.long{border-left:3px solid #ff6b35}
+.wf{font-size:14px;text-align:center}.wt{font-size:11px;font-weight:bold;line-height:1.3;margin-bottom:2px}.wm{font-size:9px;color:#4a6070;display:flex;gap:6px;flex-wrap:wrap}
+.wr{text-align:right}.wa{font-size:16px;font-weight:bold}.wa.mil{color:#ff0080}.wa.big{color:#00e5ff}.wa.reg{color:#e0eaf0}.wo{font-size:9px;color:#4a6070}
+/* BREAKDOWN */
+.bd{font-size:9px;color:#4a6070;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+/* WALLET */
+.wlc{background:#0e1318;border:1px solid #1a2530;margin-bottom:8px;padding:10px 12px}
+.wl-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.wl-n{font-size:12px;font-weight:bold;color:#e0eaf0}.wl-a{font-size:8px;color:#4a6070}.wl-v{font-size:16px;font-weight:bold;color:#00e5ff}
+.wl-s{display:flex;gap:12px;font-size:10px;color:#4a6070;margin-bottom:6px}.wl-s b{color:#e0eaf0}
+.wl-b{border-top:1px solid #1a2530;padding-top:4px}.wl-bt{font-size:9px;color:#4a6070;padding:2px 0;display:flex;justify-content:space-between}
+/* TODAY HDR */
+.today-hdr{padding:8px 0;margin-bottom:8px;border-bottom:1px solid #1a2530}
+.today-hdr b{font-size:13px;color:#00e5ff}.today-hdr span{font-size:10px;color:#4a6070;margin-left:8px}
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#080c10}::-webkit-scrollbar-thumb{background:#1a2530}
-@media(max-width:600px){.summary{grid-template-columns:repeat(2,1fr)}}
-</style>
-</head>
-<body>
-<div class="hdr">
-  <div class="logo">WHALE<span>WATCH</span></div>
-  <div class="hdr-r">
-    <span class="new-counter" id="new-ctr" style="display:none">0 NEW</span>
-    <div class="dot" id="dot"></div>
-    <span id="upd">—</span>
-    <span id="cd" style="font-variant-numeric:tabular-nums">30s</span>
-  </div>
-</div>
-<div class="summary">
-  <div class="s-card"><div class="s-label">Today's Volume</div><div class="s-val" id="sv-vol">—</div><div class="s-sub" id="sv-cnt">—</div></div>
-  <div class="s-card"><div class="s-label">Biggest Bet</div><div class="s-val" id="sv-big">—</div><div class="s-sub" id="sv-big-sub">—</div></div>
-  <div class="s-card"><div class="s-label">Most Bet Market</div><div class="s-val" id="sv-mkt">—</div><div class="s-sub" id="sv-mkt-sub">—</div></div>
-  <div class="s-card"><div class="s-label">Top Wallet</div><div class="s-val" id="sv-wal">—</div><div class="s-sub" id="sv-wal-sub">—</div></div>
+@media(max-width:600px){.sum{grid-template-columns:repeat(2,1fr)}.tabs{flex-wrap:nowrap}}
+</style></head><body>
+<div class="hdr"><div class="logo">WHALE<span>WATCH</span></div><div class="hdr-r"><span class="nc" id="nc">0 NEW</span><div class="dot" id="dot"></div><span id="upd">—</span><span id="cd" style="font-variant-numeric:tabular-nums">30s</span></div></div>
+<div class="sum">
+  <div class="sc"><div class="sl">Today Volume</div><div class="sv" id="sv1">—</div><div class="ss" id="ss1">—</div></div>
+  <div class="sc"><div class="sl">Biggest Bet</div><div class="sv" id="sv2">—</div><div class="ss" id="ss2">—</div></div>
+  <div class="sc"><div class="sl">Top Market</div><div class="sv" id="sv3">—</div><div class="ss" id="ss3">—</div></div>
+  <div class="sc"><div class="sl">Top Wallet</div><div class="sv" id="sv4">—</div><div class="ss" id="ss4">—</div></div>
 </div>
 <div class="tabs">
-  <div class="tab active" onclick="go('mlb')">⚾ MLB <span class="badge" id="mlb-n"></span></div>
-  <div class="tab" onclick="go('war')">🚨 WAR INTEL <span class="badge" id="war-n"></span></div>
-  <div class="tab" onclick="go('whales')">🐳 ALL WHALES <span class="badge" id="whales-n"></span></div>
+  <div class="tab active" onclick="go('mlb')">⚾ MLB <span class="badge" id="n-mlb"></span></div>
+  <div class="tab" onclick="go('nhl')">🏒 NHL <span class="badge" id="n-nhl"></span></div>
+  <div class="tab" onclick="go('nba')">🏀 NBA <span class="badge" id="n-nba"></span></div>
+  <div class="tab" onclick="go('golf')">⛳ MASTERS <span class="badge" id="n-golf"></span></div>
+  <div class="tab" onclick="go('ucl')">⚽ UCL <span class="badge" id="n-ucl"></span></div>
+  <div class="tab" onclick="go('war')">🚨 WAR <span class="badge" id="n-war"></span></div>
+  <div class="tab" onclick="go('whales')">🐳 ALL WHALES <span class="badge" id="n-whales"></span></div>
   <div class="tab" onclick="go('wallets')">🏆 WALLETS</div>
 </div>
-<div class="filter-bar">
-  <div><div class="fb-label">MIN TRADE SIZE</div><div class="fb-val" id="min-val">$1.0K</div></div>
-  <input type="range" id="min-slider" min="1000" max="900000" step="1000" value="1000" oninput="onSlider(+this.value)">
-  <div class="fb-info" id="fetch-info">—</div>
+<div class="fb">
+  <div><div class="fbl">MIN TRADE</div><div class="fbv" id="mv">$1.0K</div></div>
+  <input type="range" id="ms" min="1000" max="900000" step="1000" value="1000" oninput="onS(+this.value)">
+  <div class="fbi" id="fi">—</div>
 </div>
-<div class="panel active" id="p-mlb"><div class="section" id="mlb-list"><div class="empty"><span class="spin"></span> Loading…</div></div></div>
-<div class="panel" id="p-war"><div class="section" id="war-list"><div class="empty"><span class="spin"></span> Loading…</div></div></div>
-<div class="panel" id="p-whales"><div class="section" id="whales-list"><div class="empty"><span class="spin"></span> Loading…</div></div></div>
-<div class="panel" id="p-wallets"><div class="section" id="wallet-list"><div class="empty"><span class="spin"></span> Loading…</div></div></div>
+<div class="panel active" id="p-mlb"><div class="section" id="s-mlb"><div class="empty"><span class="spin"></span></div></div></div>
+<div class="panel" id="p-nhl"><div class="section" id="s-nhl"><div class="empty"><span class="spin"></span></div></div></div>
+<div class="panel" id="p-nba"><div class="section" id="s-nba"><div class="empty"><span class="spin"></span></div></div></div>
+<div class="panel" id="p-golf"><div class="section" id="s-golf"><div class="empty"><span class="spin"></span></div></div></div>
+<div class="panel" id="p-ucl"><div class="section" id="s-ucl"><div class="empty"><span class="spin"></span></div></div></div>
+<div class="panel" id="p-war"><div class="section" id="s-war"><div class="empty"><span class="spin"></span></div></div></div>
+<div class="panel" id="p-whales"><div class="section" id="s-whales"><div class="empty"><span class="spin"></span></div></div></div>
+<div class="panel" id="p-wallets"><div class="section" id="s-wallets"><div class="empty"><span class="spin"></span></div></div></div>
 
 <script>
 const $=id=>document.getElementById(id);
-const fmt=n=>n>=1e6?'$'+(n/1e6).toFixed(2)+'M':n>=1e3?'$'+(n/1e3).toFixed(1)+'K':'$'+Math.round(n);
-const fmtD=n=>'$'+Math.round(n).toLocaleString();
-const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-const TABS=['mlb','war','whales','wallets'];
-const TWO_MIN=120;
-let sessionStart=Math.floor(Date.now()/1000);
-let newTradeCount=0;
-
-// Seen trade IDs per tab to avoid duplicates and detect new ones
-const seenWhales=new Set(), seenWar=new Set();
+const F=n=>n>=1e6?'$'+(n/1e6).toFixed(2)+'M':n>=1e3?'$'+(n/1e3).toFixed(1)+'K':'$'+Math.round(n);
+const D=n=>'$'+Math.round(n).toLocaleString();
+const E=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const TABS=['mlb','nhl','nba','golf','ucl','war','whales','wallets'];
+let newCt=0,cd=30;
 
 function go(t){TABS.forEach((x,i)=>{$('p-'+x).classList.toggle('active',x===t);document.querySelectorAll('.tab')[i].classList.toggle('active',x===t);});}
+function getMin(){return parseInt($('ms').value)||1000;}
+function onS(v){$('mv').textContent=F(v);loadAll();}
 
-let countdown=30;
-setInterval(()=>{countdown--;if(countdown<=0){countdown=30;bgRefresh();}$('cd').textContent=countdown+'s';},1000);
-function getMin(){return parseInt($('min-slider').value)||1000;}
-function onSlider(v){$('min-val').textContent=fmt(v);loadWar();loadWhales();}
+setInterval(()=>{cd--;if(cd<=0){cd=30;refresh();}$('cd').textContent=cd+'s';},1000);
 
-function isNew(ts){return ts>0 && Math.floor(Date.now()/1000)-ts<TWO_MIN;}
-function bumpNew(n){newTradeCount+=n;const el=$('new-ctr');if(newTradeCount>0){el.textContent=newTradeCount+' NEW';el.style.display='';}else{el.style.display='none';}}
+function bumpNew(n){newCt+=n;const e=$('nc');if(newCt>0){e.textContent=newCt+' NEW';e.style.display='';}else e.style.display='none';}
 
-function trRow(t,isNewTrade){
-  const ac=t.usd>=50000?'huge':t.usd>=5000?'big':'reg';
+// Shared trade row renderer
+function TR(t){
+  const ac=t.usd>=50000?'h':t.usd>=5000?'b':'r';
   const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
-  const pay=t.payout>0?` · 💰+${fmt(t.payout)}`:'';
-  const cls=isNewTrade?'tr tr-new':'tr';
-  const badge=isNewTrade?'<span class="new-badge">NEW</span>':'';
-  return`<div class="${cls}" data-id="${esc(t.id||'')}"><span class="tr-flag">${t.flag||'·'}</span><div><div class="tr-detail"><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span> ${esc(t.outcome)} · ${esc(t.title).slice(0,40)}${badge}</div><div class="tr-wallet">${esc(t.pseudonym||t.wallet)} · ${fmtD(t.usd)} at ${(t.odds*100).toFixed(0)}¢ · ${ts}${pay}</div></div><div class="tr-right"><div class="tr-amt ${ac}">${fmt(t.usd)}</div><div class="tr-sub">@${(t.odds*100).toFixed(0)}¢</div></div></div>`;
+  const pay=t.payout>0?' · +'+F(t.payout):'';
+  const con=t.consolidated>1?` <span style="color:#ff6b35">(${t.consolidated} bets)</span>`:'';
+  const name=E(t.pseudonym||t.wallet);
+  return`<div class="tr"><span class="tf">${t.flag||'·'}</span><div><div class="td"><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span> ${E(t.outcome)} ${name} ${D(t.usd)} at ${(t.odds*100).toFixed(0)}¢${pay}${con}</div><div class="tw">${E(t.title).slice(0,40)} · ${ts}</div></div><div><div class="ta ${ac}">${F(t.usd)}</div><div class="ts">@${(t.odds*100).toFixed(0)}¢</div></div></div>`;
 }
 
-// ── BACKGROUND REFRESH — seamless, no screen clearing ────────────────────────
-async function bgRefresh(){
+async function refresh(){
   $('dot').classList.remove('live');
-  await Promise.allSettled([loadSummary(),loadMLB(),loadWar(),loadWhales(),loadWallets()]);
-  $('dot').classList.add('live');
-  $('upd').textContent=new Date().toLocaleTimeString();
-  countdown=30;
+  await Promise.allSettled([loadSummary(),...['mlb','nhl','nba','golf','ucl','war'].map(loadSport),loadWhales(),loadWallets()]);
+  $('dot').classList.add('live');$('upd').textContent=new Date().toLocaleTimeString();cd=30;
 }
+function loadAll(){['mlb','nhl','nba','golf','ucl','war'].forEach(loadSport);loadWhales();}
 
-// ── SUMMARY ──────────────────────────────────────────────────────────────────
+// ── SUMMARY ──
 async function loadSummary(){
   try{
     const s=await(await fetch('/api/summary')).json();
-    $('sv-vol').textContent=fmt(s.totalVolume||0);
-    $('sv-cnt').textContent=`${(s.tradeCount||0).toLocaleString()} trades · ${(s.storedTotal||0).toLocaleString()} stored`;
-    if(s.biggestTrade){$('sv-big').textContent=fmt(s.biggestTrade.usd);$('sv-big-sub').textContent=`${s.biggestTrade.wallet} · ${s.biggestTrade.title}`;}
-    if(s.topMarket){$('sv-mkt').textContent=fmt(s.topMarket.volume);$('sv-mkt-sub').textContent=s.topMarket.title;}
-    if(s.topWallet){$('sv-wal').textContent=fmt(s.topWallet.volume);$('sv-wal-sub').textContent=s.topWallet.address;}
+    $('sv1').textContent=F(s.totalVolume||0);$('ss1').textContent=`${(s.tradeCount||0).toLocaleString()} trades`;
+    if(s.biggestTrade){$('sv2').textContent=F(s.biggestTrade.usd);$('ss2').textContent=s.biggestTrade.wallet+' · '+s.biggestTrade.title;}
+    if(s.topMarket){$('sv3').textContent=F(s.topMarket.volume);$('ss3').textContent=s.topMarket.title;}
+    if(s.topWallet){$('sv4').textContent=F(s.topWallet.volume);$('ss4').textContent=s.topWallet.address;}
   }catch(e){}
 }
 
-// ── MLB (full replace — games change structure) ──────────────────────────────
-async function loadMLB(){
-  try{
-    const games=await(await fetch('/api/mlb')).json();
-    if(games.error)throw new Error(games.error);
-    $('mlb-n').textContent=games.length;
-    if(!games.length){$('mlb-list').innerHTML='<div class="empty">No games today</div>';return;}
-    const min=getMin();
-    // Preserve which games are expanded
-    const openIds=new Set();
-    document.querySelectorAll('.game-trades.open').forEach(el=>openIds.add(el.id));
-
-    $('mlb-list').innerHTML=games.map((g,i)=>{
-      const ml=g.moneyline;
-      let bars='<div style="font-size:9px;color:#253540;margin:6px 0">Settled or outside 15-85%</div>';
-      if(ml&&ml.prices.length>=2){const a=(ml.prices[0]*100).toFixed(1),h=(ml.prices[1]*100).toFixed(1);bars=`<div class="ml-bar"><div class="ml-a" style="width:${a}%">${a}%</div><div class="ml-h" style="width:${h}%">${h}%</div></div>`;}
-      const ou=g.ou?`<div class="ou-pill">O/U <b>${g.ou.line}</b> · Over ${(g.ou.prices[0]*100).toFixed(0)}% / Under ${(g.ou.prices[1]*100).toFixed(0)}%</div>`:'';
-      const sh=g.isSharp?`<span class="sharp">⚡ SHARP ${g.delta>0?'▲':'▼'}${Math.abs(g.delta*100).toFixed(1)}pp</span>`:'';
-      const dl=!g.isSharp&&g.delta?`<span style="color:${g.delta>0?'#39ff14':'#ff3366'}">${g.delta>0?'▲':'▼'}${Math.abs(g.delta*100).toFixed(1)}pp</span>`:'';
-      const mp=g.mispriced?'<span class="misprice">⚠ VALUE?</span>':'';
-      const time=new Date(g.gameTime).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/New_York'})+' ET';
-      const tid='gt-'+i;
-      const ft=g.trades.filter(t=>t.usd>=min);
-      const th=ft.length?ft.map(t=>trRow(t,isNew(t.timestamp))).join(''):`<div style="font-size:9px;color:#4a6070;padding:8px;text-align:center">${g.tradeCount} trades, none >= ${fmt(min)}</div>`;
-      const wasOpen=openIds.has(tid);
-      return`<div class="game" onclick="$('${tid}').classList.toggle('open')"><div class="game-top"><div class="game-teams">${esc(g.away)} <span style="color:#4a6070">@</span> ${esc(g.home)}</div><div class="game-sub">${esc(g.awayRec)} vs ${esc(g.homeRec)} · ${time} · ${esc(g.status)}</div><div class="pitchers">⚾ <b>${esc(g.awayPitcher)}</b> vs <b>${esc(g.homePitcher)}</b></div>${bars}${ou}<div class="game-meta">${g.vol24>0?`<span>24h: ${fmt(g.vol24)}</span>`:''} ${g.totalVol>0?`<span>Total: ${fmt(g.totalVol)}</span>`:''} ${sh}${dl}${mp} <span>${g.tradeCount} trades</span></div></div><div class="game-expand">▼ ${g.tradeCount} trades</div><div class="game-trades${wasOpen?' open':''}" id="${tid}">${th}</div></div>`;
-    }).join('');
-  }catch(e){$('mlb-list').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`;}
-}
-
-// ── WAR — incremental: prepend new trades, don't wipe ───────────────────────
-let warMarkets=null;
-async function loadWar(){
+// ── UNIFIED SPORT TAB LOADER ──
+async function loadSport(cat){
+  const el=$('s-'+cat); if(!el)return;
   try{
     const min=getMin();
-    const d=await(await fetch(`/api/war?min=${min}`)).json();
+    const d=await(await fetch(`/api/sport/${cat}?min=${min}`)).json();
     if(d.error)throw new Error(d.error);
-    const markets=d.markets||[];const tw=d.topWhales||[];
-    $('war-n').textContent=markets.length;
-    $('fetch-info').textContent=`${(d.totalFetched||0).toLocaleString()} in pool · ${(d.stored||0).toLocaleString()} stored`;
+    const markets=d.markets||[];
+    const sharp=d.sharpLabels||[];
+    const nEl=$('n-'+cat); if(nEl) nEl.textContent=markets.filter(m=>m.trades.length>0).length||markets.length;
+    $('fi').textContent=`${(d.todayCount||0).toLocaleString()} today · ${(d.stored||0).toLocaleString()} stored`;
 
-    // If first load or market count changed, full render
-    const needFull=!warMarkets||warMarkets.length!==markets.length;
-    warMarkets=markets;
+    let html='';
 
-    if(needFull){
-      if(!markets.length){$('war-list').innerHTML='<div class="empty">No war markets</div>';return;}
-      let banner='';
-      if(tw.length){banner=`<div class="whale-banner"><div class="wb-title">🚨 WHALE ALERTS — TRADES OVER ${fmt(Math.max(min,1000))}</div>${tw.map(t=>trRow(t,isNew(t.timestamp))).join('')}</div>`;}
-      $('war-list').innerHTML=banner+markets.map((m,i)=>{
-        const pct=(m.yesPrice*100).toFixed(0),pN=+pct;
-        const lvl=pN>=40?'hi':pN>=15?'mod':'lo';const cls=pN>=40?'':pN>=15?'mod':'low';
-        const tc=m.trades.length,mid='wm-'+i;
-        // Track new trades
-        let newHere=0;
-        m.trades.forEach(t=>{if(!seenWar.has(t.id)&&t.id){seenWar.add(t.id);newHere++;}});
-        const th=tc?`<div class="wm-trades" id="${mid}"><div style="font-size:9px;color:#4a6070;letter-spacing:1px;margin-bottom:6px">TRADES (${tc}) — min ${fmt(min)}</div>${m.trades.map(t=>trRow(t,isNew(t.timestamp))).join('')}</div>`:'';
-        if(newHere>0)bumpNew(newHere);
-        return`<div class="war-market ${cls}" onclick="var e=$('${mid}');if(e)e.classList.toggle('open')"><div class="wm-hdr"><div class="wm-q">${esc(m.question)}</div><div class="wm-pct ${lvl}">${pct}%</div></div><div class="wm-meta"><span>YES ${pct}% / NO ${(m.noPrice*100).toFixed(0)}%</span><span>Vol: ${fmt(m.volume)}</span>${m.volume24hr>0?`<span>24h: ${fmt(m.volume24hr)}</span>`:''} ${tc?`<span style="color:#ff6b35">${tc} trades</span>`:''}</div>${th}${tc?`<div style="font-size:9px;color:#4a6070;margin-top:6px">▼ ${tc} trades</div>`:''}</div>`;
-      }).join('');
-    } else {
-      // Incremental: update whale banner + trade counts
-      const bannerEl=$('war-list').querySelector('.whale-banner');
-      if(tw.length&&bannerEl){
-        bannerEl.querySelector('.wb-title').textContent=`🚨 WHALE ALERTS — TRADES OVER ${fmt(Math.max(min,1000))}`;
-      }
+    // MLB schedule header
+    if(cat==='mlb'&&d.schedule){
+      html+=d.schedule.map(g=>{
+        const a=g.teams.away.team.name,h=g.teams.home.team.name;
+        const ap=(g.teams.away.probablePitcher||{}).fullName||'TBD';
+        const hp=(g.teams.home.probablePitcher||{}).fullName||'TBD';
+        const status=g.status.detailedState;
+        const time=new Date(g.gameDate).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/New_York'})+' ET';
+        return`<div style="font-size:10px;color:#4a6070;padding:4px 0;border-bottom:1px solid #0a0e14"><b style="color:#e0eaf0">${E(a)}</b> @ <b style="color:#e0eaf0">${E(h)}</b> · ${time} · ${E(status)} · ⚾ ${E(ap)} vs ${E(hp)}</div>`;
+      }).join('')+'<div style="height:8px"></div>';
     }
-  }catch(e){if(!warMarkets)$('war-list').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`;}
+
+    // Sharp consensus
+    if(sharp.length) html+=`<div class="sb"><div class="sb-t">🧠 SHARP CONSENSUS — 3+ WALLETS</div>${sharp.map(s=>`<div class="sb-r"><span style="color:#e0eaf0;font-weight:bold">${E(s.label)}</span><span style="color:#00e5ff">${s.wallets} wallets</span></div>`).join('')}</div>`;
+
+    // Market cards
+    if(!markets.length){html+='<div class="empty">No markets found</div>';}
+    else html+=markets.slice(0,60).map((m,i)=>{
+      const pct=(m.yesPrice*100).toFixed(1);
+      const tc=m.trades.length;
+      const mid=cat+'-m-'+i;
+      const wb=m.uniqueWallets>=3?`<span class="mc-w">🧠 ${m.uniqueWallets}w</span>`:'';
+      const thtml=tc?`<div class="mc-t" id="${mid}">${m.trades.map(t=>TR(t)).join('')}</div>`:'';
+      return`<div class="mc" onclick="var e=$('${mid}');if(e)e.classList.toggle('open')"><div class="mc-h"><div class="mc-l">${E(m.label)}</div><div class="mc-o">${pct}%</div></div><div class="mc-m"><span>Vol: ${F(m.volume)}</span>${m.volume24hr>0?`<span>24h: ${F(m.volume24hr)}</span>`:''} ${tc?`<span style="color:#ff6b35">${tc} trades</span>`:''} ${wb}</div><div class="mc-ev">${E(m.event)}</div>${thtml}${tc?`<div style="font-size:8px;color:#4a6070;margin-top:3px">▼ ${tc} trades</div>`:''}</div>`;
+    }).join('');
+
+    el.innerHTML=html;
+  }catch(e){el.innerHTML=`<div class="empty">Error: ${E(e.message)}</div>`;}
 }
 
-// ── ALL WHALES — incremental prepend ─────────────────────────────────────────
+// ── ALL WHALES ──
+const seen=new Set();
 async function loadWhales(){
   try{
     const min=getMin();
     const d=await(await fetch(`/api/allwhales?min=${min}`)).json();
     if(d.error)throw new Error(d.error);
     const trades=d.trades||[];
-    $('whales-n').textContent=trades.length;
-    $('fetch-info').textContent=`${(d.totalFetched||0).toLocaleString()} in pool · ${(d.stored||0).toLocaleString()} stored`;
-    if(!trades.length){$('whales-list').innerHTML=`<div class="empty">No trades >= ${fmt(min)}</div>`;return;}
+    const trending=d.trending||[];
+    const bd=d.breakdown||{};
+    $('n-whales').textContent=trades.length;
+    $('fi').textContent=`${(d.todayCount||0).toLocaleString()} today · ${(d.stored||0).toLocaleString()} stored`;
 
-    const container=$('whales-list');
-    const existingIds=new Set();
-    container.querySelectorAll('[data-wid]').forEach(el=>existingIds.add(el.dataset.wid));
+    const el=$('s-whales');
+    // Build header + breakdown
+    const bdStr=Object.entries(bd).sort((a,b)=>b[1].count-a[1].count).map(([k,v])=>{
+      const icons={MLB:'⚾',NHL:'🏒',NBA:'🏀',Soccer:'⚽',Golf:'⛳',War:'🚨',Crypto:'₿',Other:'📊'};
+      return`<span>${icons[k]||''} ${k}: <b style="color:#e0eaf0">${v.count}</b></span>`;
+    }).join('');
 
-    // Find new trades not yet in DOM
-    const newTrades=trades.filter(t=>t.id&&!seenWhales.has(t.id));
-    newTrades.forEach(t=>seenWhales.add(t.id));
+    let html=`<div class="today-hdr"><b>Today's Feed</b><span>${E(d.todayDate||'')}</span><span>${(d.todayCount||0).toLocaleString()} trades · ${trades.length} shown >= ${F(min)}</span></div><div class="bd">${bdStr}</div>`;
 
-    if(!existingIds.size){
-      // First render — build everything
-      container.innerHTML=trades.map(t=>{
-        seenWhales.add(t.id);
-        return whaleCard(t,false);
-      }).join('');
-    } else if(newTrades.length>0) {
-      // Prepend new trades at top with animation
-      bumpNew(newTrades.length);
-      const frag=document.createElement('div');
-      frag.innerHTML=newTrades.map(t=>whaleCard(t,true)).join('');
-      const firstChild=container.firstChild;
-      while(frag.firstChild) container.insertBefore(frag.firstChild, firstChild);
-      // Cap at 150 items
-      while(container.children.length>150) container.removeChild(container.lastChild);
-    }
-    // Remove NEW badges older than 2 min
-    container.querySelectorAll('.new-badge').forEach(el=>{
-      const row=el.closest('[data-wid]');
-      if(row){const ts=parseInt(row.dataset.ts||0);if(ts>0&&Math.floor(Date.now()/1000)-ts>TWO_MIN)el.remove();}
-    });
-  }catch(e){if(!seenWhales.size)$('whales-list').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`;}
+    // Trending
+    if(trending.length) html+=`<div class="trend"><div class="trend-t">🔥 TRENDING — MOST WHALE ACTIVITY LAST HOUR</div>${trending.map(t=>`<div class="sb-r"><span style="color:#e0eaf0;font-weight:bold">${t.icon} ${E(t.title).slice(0,40)}</span><span style="color:#ff6b35">${t.wallets}w · ${t.trades}t · ${F(t.volume)}</span></div>`).join('')}</div>`;
+
+    if(!trades.length){html+=`<div class="empty">No trades >= ${F(min)} today</div>`;el.innerHTML=html;return;}
+
+    // Check for new trades
+    const newOnes=trades.filter(t=>t.id&&!seen.has(t.id));
+    newOnes.forEach(t=>seen.add(t.id));
+    if(seen.size>0 && newOnes.length>0 && el.querySelector('.wc')) bumpNew(newOnes.length);
+    trades.forEach(t=>seen.add(t.id));
+
+    html+=trades.map(t=>{
+      const cls=t.usd>=1e6?'mil':t.usd>=50000?'big':t.odds<=0.20?'long':'';
+      const ac=t.usd>=1e6?'mil':t.usd>=50000?'big':'reg';
+      const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
+      const pay=t.payout>0?`<span style="color:#ffd700;font-size:9px">+${F(t.payout)}</span>`:'';
+      const icon=t.sportIcon||'';
+      const con=t.consolidated>1?` <span style="color:#ff6b35;font-size:8px">(${t.consolidated} bets consolidated)</span>`:'';
+      const isNew=newOnes.some(n=>n.id===t.id);
+      const anim=isNew?' style="animation:flashIn 1.5s"':'';
+      const badge=isNew?'<span class="nb">NEW</span>':'';
+      return`<div class="wc ${cls}" data-wid="${E(t.id)}"${anim}><div class="wf">${t.flag||icon||'·'}</div><div><div class="wt">${icon} ${E(t.title).slice(0,58)}${badge}${con}</div><div class="wm"><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span><span>${E(t.outcome)}</span><span>${E(t.pseudonym||t.wallet)}</span><span>${D(t.usd)} at ${(t.odds*100).toFixed(0)}¢</span><span>${ts}</span>${pay}</div></div><div class="wr"><div class="wa ${ac}">${F(t.usd)}</div><div class="wo">@${(t.odds*100).toFixed(0)}¢</div></div></div>`;
+    }).join('');
+
+    el.innerHTML=html;
+  }catch(e){$('s-whales').innerHTML=`<div class="empty">Error: ${E(e.message)}</div>`;}
 }
 
-function whaleCard(t,isNewTrade){
-  const cls=t.usd>=1e6?'mil':t.usd>=50000?'big':t.odds<=0.20?'long':'';
-  const ac=t.usd>=1e6?'mil':t.usd>=50000?'big':'reg';
-  const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
-  const pay=t.payout>0?`<span class="wht-payout">💰 +${fmt(t.payout)} potential</span>`:'';
-  const badge=isNewTrade?'<span class="new-badge">NEW</span>':'';
-  const anim=isNewTrade?' style="animation:flashIn 1.5s ease-out"':'';
-  return`<div class="whale-trade ${cls}" data-wid="${esc(t.id||'')}" data-ts="${t.timestamp}"${anim}><div class="wht-flag">${t.flag||'·'}</div><div><div class="wht-title">${esc(t.title).slice(0,65)}${badge}</div><div class="wht-meta"><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span><span>${esc(t.outcome)}</span><span>${esc(t.pseudonym||t.wallet)}</span><span>${fmtD(t.usd)} at ${(t.odds*100).toFixed(0)}¢</span><span>${ts}</span>${pay}</div></div><div class="wht-right"><div class="wht-amt ${ac}">${fmt(t.usd)}</div><div class="wht-odds">@${(t.odds*100).toFixed(0)}¢</div></div></div>`;
-}
-
-// ── WALLETS ──────────────────────────────────────────────────────────────────
+// ── WALLETS ──
 async function loadWallets(){
   try{
     const ws=await(await fetch('/api/wallets')).json();
     if(ws.error)throw new Error(ws.error);
     const medals=['🥇','🥈','🥉'];
-    if(!ws.length){$('wallet-list').innerHTML='<div class="empty">No wallets</div>';return;}
-    $('wallet-list').innerHTML=ws.map((w,i)=>{
+    $('s-wallets').innerHTML=ws.length?ws.map((w,i)=>{
       const bp=w.trades>0?Math.round((w.buys/w.trades)*100):50;
-      const bets=w.recentBets.map(b=>`<div class="wc-bet"><span><span class="${b.side==='BUY'?'buy':'sell'}">${b.side}</span> ${esc(b.outcome)} · ${esc(b.title)}</span><span>${fmt(b.usd)} @${(b.odds*100).toFixed(0)}¢</span></div>`).join('');
-      return`<div class="wallet-card"><div class="wc-hdr"><div style="display:flex;align-items:center"><span class="wc-rank">${medals[i]||(i+1)}</span><div><div class="wc-name">${esc(w.pseudonym||w.short)}</div><div class="wc-addr">${w.address.slice(0,8)}…${w.address.slice(-6)}</div></div></div><div class="wc-vol">${fmt(w.volume)}</div></div><div class="wc-stats"><span>Trades: <b>${w.trades}</b></span><span>Biggest: <b>${fmt(w.biggest)}</b></span><span>Buy: <b>${bp}%</b></span></div>${bets?`<div class="wc-bets">${bets}</div>`:''}</div>`;
-    }).join('');
-  }catch(e){$('wallet-list').innerHTML=`<div class="empty">Error: ${esc(e.message)}</div>`;}
+      const bets=w.recentBets.map(b=>`<div class="wl-bt"><span><span class="${b.side==='BUY'?'buy':'sell'}">${b.side}</span> ${E(b.outcome)} · ${E(b.title)}</span><span>${F(b.usd)} @${(b.odds*100).toFixed(0)}¢</span></div>`).join('');
+      return`<div class="wlc"><div class="wl-h"><div style="display:flex;align-items:center"><span style="font-size:16px;margin-right:6px">${medals[i]||(i+1)}</span><div><div class="wl-n">${E(w.pseudonym||w.short)}</div><div class="wl-a">${w.address.slice(0,8)}…${w.address.slice(-6)}</div></div></div><div class="wl-v">${F(w.volume)}</div></div><div class="wl-s"><span>Trades: <b>${w.trades}</b></span><span>Biggest: <b>${F(w.biggest)}</b></span><span>Buy: <b>${bp}%</b></span></div>${bets?`<div class="wl-b">${bets}</div>`:''}</div>`;
+    }).join(''):'<div class="empty">No wallets</div>';
+  }catch(e){$('s-wallets').innerHTML=`<div class="empty">Error</div>`;}
 }
 
-bgRefresh();
-</script>
-</body>
-</html>
+refresh();
+</script></body></html>

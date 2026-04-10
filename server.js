@@ -6,317 +6,339 @@ const { execSync } = require('child_process');
 const app     = express();
 const PORT    = process.env.PORT || 3000;
 const TRADES_FILE = path.join(__dirname, 'trades_history.json');
-const SPORTS_KW = ['mlb','nba','nhl','nfl','soccer','football','tennis','atp','wta','serie a','la liga','premier league','champions league','ufc','mma'];
-const DAY_MS  = 24*60*60*1000;
-const WEEK_MS = 7*DAY_MS;
+
+// ── EASTERN TIME ─────────────────────────────────────────────────────────────
+function todayMidnightET() {
+  const etDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const ms = new Date(etDate + 'T00:00:00-04:00').getTime();
+  return { ms, sec: Math.floor(ms/1000), date: etDate };
+}
+function todayDateET() {
+  return new Date().toLocaleDateString('en-US', { timeZone:'America/New_York', weekday:'long', year:'numeric', month:'long', day:'numeric' });
+}
 
 // ── CACHE ────────────────────────────────────────────────────────────────────
 const cache = new Map();
-function cached(key, fn, ttl = 45000) {
+function cached(key, fn, ttl=45000) {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.ts < ttl) return Promise.resolve(hit.data);
-  return fn().then(data => { cache.set(key, { data, ts: Date.now() }); return data; });
+  if (hit && Date.now()-hit.ts < ttl) return Promise.resolve(hit.data);
+  return fn().then(data => { cache.set(key, {data, ts:Date.now()}); return data; });
 }
 function parseJSON(s) { try { return JSON.parse(s||'[]'); } catch { return []; } }
 
 // ── PERSISTENT TRADE STORE ───────────────────────────────────────────────────
-let tradeStore = new Map(); // key -> raw trade object
-
+let tradeStore = new Map();
 function tradeKey(t) { return t.transactionHash || `${t.proxyWallet||''}|${t.timestamp||''}|${t.size||''}`; }
-
-function isSports(t) {
-  const title = (t.title||'').toLowerCase();
-  return SPORTS_KW.some(kw => title.includes(kw));
-}
 
 function loadStore() {
   try {
     if (!fs.existsSync(TRADES_FILE)) return;
+    const { sec } = todayMidnightET();
     const arr = JSON.parse(fs.readFileSync(TRADES_FILE, 'utf8'));
-    const now = Date.now();
     let loaded = 0;
-    for (const t of arr) {
-      const ts = parseInt(t.timestamp||0) * 1000;
-      const ttl = isSports(t) ? DAY_MS : WEEK_MS;
-      if (now - ts < ttl) { tradeStore.set(tradeKey(t), t); loaded++; }
-    }
-    console.log(`Loaded ${loaded} trades from disk (pruned expired)`);
-  } catch(e) { console.error('Load trades error:', e.message); }
+    for (const t of arr) { if (parseInt(t.timestamp||0) >= sec) { tradeStore.set(tradeKey(t), t); loaded++; } }
+    console.log(`Loaded ${loaded} today trades from disk`);
+  } catch(e) { console.error('Load error:', e.message); }
 }
-
 let saveTimer;
 function persistStore() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { fs.writeFileSync(TRADES_FILE, JSON.stringify([...tradeStore.values()])); }
-    catch(e) { console.error('Save trades error:', e.message); }
+    try { fs.writeFileSync(TRADES_FILE, JSON.stringify([...tradeStore.values()])); } catch(e) {}
   }, 3000);
 }
-
 function mergeTrades(fresh) {
   if (!Array.isArray(fresh)) return 0;
-  const now = Date.now();
+  const { sec } = todayMidnightET();
   let added = 0;
   for (const t of fresh) {
     const key = tradeKey(t);
     if (tradeStore.has(key)) continue;
-    const ts = parseInt(t.timestamp||0) * 1000;
-    const ttl = isSports(t) ? DAY_MS : WEEK_MS;
-    if (ts > 0 && now - ts > ttl) continue;
-    tradeStore.set(key, t);
-    added++;
+    if (parseInt(t.timestamp||0) < sec) continue; // today only
+    tradeStore.set(key, t); added++;
   }
-  // Prune expired
-  for (const [k, t] of tradeStore) {
-    const ts = parseInt(t.timestamp||0) * 1000;
-    const ttl = isSports(t) ? DAY_MS : WEEK_MS;
-    if (ts > 0 && now - ts > ttl) tradeStore.delete(k);
-  }
+  // Prune yesterday
+  for (const [k,t] of tradeStore) { if (parseInt(t.timestamp||0) < sec) tradeStore.delete(k); }
   if (added > 0) persistStore();
   return added;
 }
-
-function allTrades() {
-  return [...tradeStore.values()].sort((a,b) => parseInt(b.timestamp||0) - parseInt(a.timestamp||0));
+function todayTrades() {
+  const { sec } = todayMidnightET();
+  return [...tradeStore.values()].filter(t => parseInt(t.timestamp||0) >= sec).sort((a,b) => parseInt(b.timestamp||0)-parseInt(a.timestamp||0));
 }
-
 loadStore();
 
-// ── PAGINATED FETCHER: 5 pages = 5000 trades ────────────────────────────────
+// ── PAGINATED FETCHER ────────────────────────────────────────────────────────
 async function fetchAndMerge() {
   const pages = await Promise.all([0,1000,2000,3000,4000].map(async off => {
-    try {
-      const r = await fetch(`https://data-api.polymarket.com/trades?limit=1000&offset=${off}`, { headers: { Accept:'application/json' } });
-      return r.ok ? r.json() : [];
-    } catch { return []; }
+    try { const r = await fetch(`https://data-api.polymarket.com/trades?limit=1000&offset=${off}`, {headers:{Accept:'application/json'}}); return r.ok ? r.json() : []; }
+    catch { return []; }
   }));
   const fresh = pages.flat();
-  const added = mergeTrades(fresh);
-  return { fetched: fresh.length, added, stored: tradeStore.size };
+  mergeTrades(fresh);
+  return { fetched: fresh.length, stored: tradeStore.size };
 }
 
-// ── MAC NOTIFICATIONS ────────────────────────────────────────────────────────
+// ── NOTIFICATIONS ────────────────────────────────────────────────────────────
 const notified = new Set();
-function macNotify(title, msg, sound) {
-  if (process.platform !== 'darwin') return;
-  try { execSync(`osascript -e 'display notification "${msg.replace(/'/g,"\\'")}" with title "${title.replace(/'/g,"\\'")}" sound name "${sound}"'`); } catch {}
-}
 function checkNotify(t) {
   const key = t.transactionHash || `${t.proxyWallet}|${t.timestamp}`;
   if (notified.has(key)) return;
   notified.add(key);
   if (notified.size > 5000) { const a=[...notified]; notified.clear(); a.slice(-2000).forEach(k=>notified.add(k)); }
   const usd = parseFloat(t.size||0)*parseFloat(t.price||0);
-  if (usd >= 10000) {
+  if (usd >= 10000 && process.platform === 'darwin') {
     const w = t.proxyWallet ? t.proxyWallet.slice(0,6)+'…'+t.proxyWallet.slice(-4) : '?';
-    macNotify(`${usd>=1e6?'🚨':usd>=50000?'🐳':'🎯'} WHALE $${Math.round(usd).toLocaleString()}`,
-      `${w} on "${(t.title||'').slice(0,50)}"`, usd>=50000?'Submarine':'Ping');
+    const icon = usd>=1e6?'🚨':usd>=50000?'🐳':'🎯';
+    try { execSync(`osascript -e 'display notification "${w} $${Math.round(usd).toLocaleString()} on ${(t.title||'').slice(0,40).replace(/'/g,"\\'")}..." with title "${icon} WHALE" sound name "${usd>=50000?'Submarine':'Ping'}"'`); } catch {}
   }
 }
 
-// ── HELPERS ──────────────────────────────────────────────────────────────────
-function teamsMatch(team, title) {
-  const t = team.toLowerCase(), ti = title.toLowerCase();
-  if (ti.includes(t)) return true;
-  const w = t.split(' ');
-  if (w.length>=2) { const two=w.slice(-2).join(' '); if (two.length>5&&ti.includes(two)) return true; }
-  const last = w[w.length-1];
-  return last.length>4 && ti.includes(last);
-}
-
+// ── TRADE FORMATTER ──────────────────────────────────────────────────────────
 function fmtTrade(t) {
   const usd = parseFloat(t.size||0)*parseFloat(t.price||0);
   const odds = parseFloat(t.price||0);
   const payout = odds>0 && odds<1 ? usd/odds-usd : 0;
   return {
-    id: tradeKey(t),
-    wallet: t.proxyWallet ? t.proxyWallet.slice(0,5)+'…'+t.proxyWallet.slice(-3) : '?',
+    id: tradeKey(t), wallet: t.proxyWallet ? t.proxyWallet.slice(0,5)+'…'+t.proxyWallet.slice(-3) : '?',
     fullWallet: t.proxyWallet||'', pseudonym: t.pseudonym||'',
-    usd, odds, payout,
-    side: (t.side||'BUY').toUpperCase(), outcome: t.outcome||'?',
+    usd, odds, payout, side: (t.side||'BUY').toUpperCase(), outcome: t.outcome||'?',
     title: t.title||'', timestamp: parseInt(t.timestamp||0),
     flag: usd>=1e6?'🚨':usd>=50000?'🐳':(usd>=5000||(odds<=0.20&&usd>=500))?'🎯':''
   };
 }
 
+// ── CATEGORIES ───────────────────────────────────────────────────────────────
+const CAT_RULES = [
+  ['MLB',['yankees','dodgers','cubs','padres','braves','mets','astros','phillies','rangers','orioles','tigers','twins','mariners','guardians','royals','red sox','white sox','rays','marlins','reds','pirates','cardinals','nationals','brewers','rockies','angels','giants','athletics','blue jays','diamondbacks']],
+  ['NHL',['nhl','stanley cup','bruins','hurricanes','panthers','maple leafs','jets','oilers','avalanche','stars','lightning','wild','capitals','penguins','islanders','devils','senators','canadiens','flames','canucks','predators','kraken','blackhawks','sabres','flyers','red wings','golden knights','ducks','blue jackets','sharks']],
+  ['NBA',['nba','lakers','celtics','warriors','bucks','76ers','knicks','nets','heat','suns','nuggets','thunder','timberwolves','cavaliers','magic','pacers','hawks','bulls','rockets','grizzlies','pelicans','kings','clippers','spurs','raptors','pistons','hornets','wizards','blazers','jazz','trail blazers']],
+  ['Soccer',['champions league','ucl','uefa','premier league','serie a','la liga','fc ','real madrid','barcelona','arsenal','liverpool','chelsea','man city','psg','bayern']],
+  ['Golf',['masters','golf','pga','augusta']],
+  ['War',['iran','israel','war','nuclear','ukraine','russia','china','taiwan','military','regime']],
+  ['Crypto',['bitcoin','ethereum','btc','eth','crypto','solana','dogecoin']],
+];
+const SPORT_ICONS = {MLB:'⚾',NHL:'🏒',NBA:'🏀',Soccer:'⚽',Golf:'⛳',War:'🚨',Crypto:'₿',Other:'📊'};
+function categorize(title) {
+  const t = (title||'').toLowerCase();
+  for (const [cat,kws] of CAT_RULES) { if (kws.some(kw => t.includes(kw))) return cat; }
+  return 'Other';
+}
+
+// ── WALLET CONSOLIDATION ─────────────────────────────────────────────────────
+function consolidateTrades(trades) {
+  // Group by wallet+outcome (same wallet same side = consolidate)
+  const groups = new Map();
+  for (const t of trades) {
+    const key = `${t.fullWallet}|${t.outcome}|${t.side}`;
+    const g = groups.get(key);
+    if (g) { g.totalUsd += t.usd; g.count++; g.trades.push(t); }
+    else groups.set(key, { ...t, totalUsd: t.usd, count: 1, trades: [t] });
+  }
+  return [...groups.values()].sort((a,b) => b.totalUsd - a.totalUsd).map(g => {
+    if (g.count === 1) return g.trades[0];
+    // Consolidated entry
+    const best = g.trades.sort((a,b)=>b.usd-a.usd)[0];
+    return { ...best, usd: g.totalUsd, consolidated: g.count,
+      flag: g.totalUsd>=1e6?'🚨':g.totalUsd>=50000?'🐳':g.totalUsd>=5000?'🎯':'' };
+  });
+}
+
 app.use(express.static(path.join(__dirname)));
 
-// ── TODAY'S SUMMARY ──────────────────────────────────────────────────────────
+// ── SUMMARY ──────────────────────────────────────────────────────────────────
 app.get('/api/summary', async (req, res) => {
   try {
     await cached('fetch-merge', fetchAndMerge, 25000);
-    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-    const todaySec = Math.floor(todayStart.getTime()/1000);
-    const today = allTrades().filter(t => parseInt(t.timestamp||0) >= todaySec);
-
-    let totalVol=0, biggest=null, biggestUsd=0;
-    const marketVol = new Map(), walletVol = new Map();
+    const today = todayTrades();
+    let totalVol=0, biggest=null, bigUsd=0;
+    const mktVol = new Map(), walVol = new Map();
     for (const t of today) {
       const usd = parseFloat(t.size||0)*parseFloat(t.price||0);
       totalVol += usd;
-      if (usd > biggestUsd) { biggestUsd=usd; biggest=t; }
-      const title = t.title||'Unknown';
-      marketVol.set(title, (marketVol.get(title)||0)+usd);
-      const addr = t.proxyWallet||'';
-      walletVol.set(addr, (walletVol.get(addr)||0)+usd);
+      if (usd > bigUsd) { bigUsd=usd; biggest=t; }
+      mktVol.set(t.title||'?', (mktVol.get(t.title||'?')||0)+usd);
+      walVol.set(t.proxyWallet||'', (walVol.get(t.proxyWallet||'')||0)+usd);
     }
-
-    let topMarket = null, topMarketVol = 0;
-    for (const [k,v] of marketVol) { if (v>topMarketVol) { topMarketVol=v; topMarket=k; } }
-    let topWallet = null, topWalletVol = 0;
-    for (const [k,v] of walletVol) { if (v>topWalletVol) { topWalletVol=v; topWallet=k; } }
-
+    let topMkt=null, topMktV=0; for (const [k,v] of mktVol) if(v>topMktV){topMktV=v;topMkt=k;}
+    let topWal=null, topWalV=0; for (const [k,v] of walVol) if(v>topWalV){topWalV=v;topWal=k;}
     res.json({
-      totalVolume: totalVol,
-      tradeCount: today.length,
-      storedTotal: tradeStore.size,
-      biggestTrade: biggest ? { usd:biggestUsd, title:(biggest.title||'').slice(0,50), wallet:biggest.proxyWallet?biggest.proxyWallet.slice(0,5)+'…'+biggest.proxyWallet.slice(-3):'?' } : null,
-      topMarket: topMarket ? { title:topMarket.slice(0,50), volume:topMarketVol } : null,
-      topWallet: topWallet ? { address:topWallet.slice(0,5)+'…'+topWallet.slice(-3), volume:topWalletVol } : null
+      totalVolume:totalVol, tradeCount:today.length, storedTotal:tradeStore.size,
+      biggestTrade: biggest ? {usd:bigUsd, title:(biggest.title||'').slice(0,50), wallet:biggest.proxyWallet?biggest.proxyWallet.slice(0,5)+'…'+biggest.proxyWallet.slice(-3):'?'} : null,
+      topMarket: topMkt ? {title:topMkt.slice(0,50), volume:topMktV} : null,
+      topWallet: topWal ? {address:topWal.slice(0,5)+'…'+topWal.slice(-3), volume:topWalV} : null
     });
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
-// ── MLB TODAY ────────────────────────────────────────────────────────────────
-app.get('/api/mlb', async (req, res) => {
+// ── UNIFIED SPORT ENDPOINT ───────────────────────────────────────────────────
+// /api/sport/mlb, /api/sport/nhl, /api/sport/nba, /api/sport/ucl, /api/sport/golf, /api/sport/war
+const SPORT_TAGS = {
+  mlb: ['mlb'],
+  nhl: ['nhl','stanley-cup','hockey'],
+  nba: ['nba','basketball'],
+  ucl: ['champions-league','ucl','uefa'],
+  golf: ['golf','masters','the-masters','pga','augusta'],
+  war: ['iran','israel','middle-east','china','ukraine','russia','nuclear','geopolitics','taiwan','military'],
+};
+const WAR_KW = ['iran','israel','war','military','nuclear','russia','ukraine','china','taiwan','invade','strike','bomb','missile','troops','ceasefire','regime'];
+
+app.get('/api/sport/:cat', async (req, res) => {
+  const cat = req.params.cat;
+  const min = parseFloat(req.query.min) || 1000;
+  const tags = SPORT_TAGS[cat];
+  if (!tags) return res.status(404).json({error:'Unknown category'});
+
   try {
-    const today = new Date().toISOString().slice(0,10);
-    const [games, polyEvents] = await Promise.all([
-      cached('mlb-'+today, async () => {
-        const r = await fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team`);
-        if (!r.ok) throw new Error('MLB API '+r.status);
-        return ((await r.json()).dates||[])[0]?.games || [];
-      }, 120000),
-      cached('poly-mlb', async () => {
-        const r = await fetch('https://gamma-api.polymarket.com/events?active=true&closed=false&tag_slug=mlb&limit=200');
-        return r.ok ? r.json() : [];
-      }, 120000)
-    ]);
-    await cached('fetch-merge', fetchAndMerge, 25000);
-    const pool = allTrades();
-    const prevOdds = cache.get('mlb-prev-odds')?.data || {};
-
-    const result = games.map(g => {
-      const away=g.teams.away.team.name, home=g.teams.home.team.name;
-      const awayPP=g.teams.away.probablePitcher||{}, homePP=g.teams.home.probablePitcher||{};
-      const matched = polyEvents.filter(e => teamsMatch(away,e.title||'') && teamsMatch(home,e.title||''));
-
-      let moneyline=null, ou=null, totalVol=0, vol24=0;
-      const allCids=[];
-      for (const evt of matched) {
-        totalVol+=parseFloat(evt.volume||0); vol24+=parseFloat(evt.volume24hr||0);
-        for (const m of (evt.markets||[])) {
-          if (m.conditionId) allCids.push(m.conditionId);
-          const q=(m.question||'').toLowerCase(), prices=parseJSON(m.outcomePrices).map(Number);
-          const live = prices.length>=2 && prices[0]>0.01 && prices[0]<0.99;
-          const value = prices.length>=2 && prices[0]>0.15 && prices[0]<0.85 && prices[1]>0.15 && prices[1]<0.85;
-          if (!q.includes('o/u')&&!q.includes('spread')&&!q.includes('first inning')&&!moneyline&&value)
-            moneyline={prices,outcomes:parseJSON(m.outcomes),vol:parseFloat(m.volume||0),question:m.question};
-          if (q.includes('o/u')&&!ou&&live)
-            ou={prices,question:m.question,line:(m.question||'').match(/O\/U\s*([\d.]+)/i)?.[1]||'?'};
-        }
-      }
-
-      const awayP=moneyline?.prices?.[0]||0;
-      const mispriced=moneyline&&((awayP>0.15&&awayP<0.40)||(awayP>0.60&&awayP<0.85));
-      const mlKey=`${away}@${home}`, prevAway=prevOdds[mlKey];
-      const delta=prevAway!=null?awayP-prevAway:0, isSharp=Math.abs(delta)>=0.05;
-
-      const cidSet=new Set(allCids);
-      const gameTrades=pool.filter(t=>cidSet.has(t.conditionId)).map(fmtTrade).sort((a,b)=>b.usd-a.usd).slice(0,30);
-
-      return {
-        away, home, awayPitcher:awayPP.fullName||'TBD', homePitcher:homePP.fullName||'TBD',
-        gameTime:g.gameDate, status:g.status.detailedState,
-        awayRec:`${g.teams.away.leagueRecord?.wins||0}-${g.teams.away.leagueRecord?.losses||0}`,
-        homeRec:`${g.teams.home.leagueRecord?.wins||0}-${g.teams.home.leagueRecord?.losses||0}`,
-        moneyline, ou, allConditionIds:allCids, totalVol, vol24,
-        delta:parseFloat(delta.toFixed(4)), isSharp, mispriced,
-        trades:gameTrades, tradeCount:gameTrades.length
-      };
-    });
-
-    const np={}; result.forEach(g=>{if(g.moneyline) np[`${g.away}@${g.home}`]=g.moneyline.prices[0];});
-    cache.set('mlb-prev-odds',{data:np,ts:Date.now()});
-    res.json(result);
-  } catch(e) { res.status(502).json({error:e.message}); }
-});
-
-// ── WAR / GEOPOLITICAL INTEL ─────────────────────────────────────────────────
-const WAR_TAGS=['iran','israel','middle-east','china','ukraine','russia','nuclear','geopolitics','taiwan','military'];
-const WAR_KW=['iran','israel','war','military','nuclear','russia','ukraine','china','taiwan','invade','strike','bomb','missile','troops','ceasefire','regime'];
-
-app.get('/api/war', async (req, res) => {
-  const minTrade=parseFloat(req.query.min)||1;
-  try {
-    const allEvents = await cached('war-events', async () => {
-      const results = await Promise.all(WAR_TAGS.map(async tag => {
-        try { const r=await fetch(`https://gamma-api.polymarket.com/events?active=true&closed=false&tag_slug=${tag}&limit=100`); return r.ok?r.json():[]; }
-        catch{return[];}
+    const allEvents = await cached(`events-${cat}`, async () => {
+      const results = await Promise.all(tags.map(async tag => {
+        try { const r = await fetch(`https://gamma-api.polymarket.com/events?active=true&closed=false&tag_slug=${tag}&limit=100`); return r.ok ? r.json() : []; }
+        catch { return []; }
       }));
-      const seen=new Set(), merged=[];
-      for (const b of results) for (const e of b) { if(!seen.has(e.id)){seen.add(e.id);merged.push(e);} }
-      return merged.filter(e=>WAR_KW.some(kw=>(e.title||'').toLowerCase().includes(kw)));
+      const seen = new Set(), merged = [];
+      for (const b of results) for (const e of b) { if (!seen.has(e.id)) { seen.add(e.id); merged.push(e); } }
+      if (cat === 'war') return merged.filter(e => WAR_KW.some(kw => (e.title||'').toLowerCase().includes(kw)));
+      return merged;
     }, 120000);
 
-    const markets=[];
-    for (const evt of allEvents) for (const m of (evt.markets||[])) {
-      const prices=parseJSON(m.outcomePrices).map(Number);
-      if(!prices.length)continue;
-      markets.push({ question:m.question||evt.title, conditionId:m.conditionId||'',
-        yesPrice:prices[0]||0, noPrice:prices[1]||0,
-        volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||evt.volume24hr||0) });
+    // Extract markets (skip settled)
+    const markets = [];
+    for (const evt of allEvents) {
+      for (const m of (evt.markets||[])) {
+        const prices = parseJSON(m.outcomePrices).map(Number);
+        if (!prices.length) continue;
+        const yp = prices[0]||0;
+        if (yp<=0.005 || yp>=0.995) continue;
+        const q = m.question||'';
+        let label = q.replace(/^Will\s+(the\s+)?/i,'').replace(/\s+(win|finish|shoot|make|play|be |reach|record|score|have ).*$/i,'').trim();
+        if (label.length > 40) label = label.slice(0,40);
+        const isGame = / vs/.test(evt.title||'');
+        markets.push({
+          label, question:q, event:evt.title||'', isGame,
+          conditionId: m.conditionId||'',
+          yesPrice:yp, noPrice:prices[1]||0,
+          volume: parseFloat(m.volume||0),
+          volume24hr: parseFloat(m.volume24hr||evt.volume24hr||0)
+        });
+      }
     }
-    markets.sort((a,b)=>b.volume-a.volume);
 
+    // Match trades from store
     await cached('fetch-merge', fetchAndMerge, 25000);
-    const pool=allTrades(), cids=new Set(markets.map(m=>m.conditionId).filter(Boolean));
-    const byMkt={};
+    const pool = todayTrades();
+    const cids = new Set(markets.map(m=>m.conditionId).filter(Boolean));
+    const byMkt = {};
+    const labelWallets = {};
+
     for (const t of pool) {
-      if(!cids.has(t.conditionId))continue;
-      const trade=fmtTrade(t);
-      if(trade.usd<minTrade)continue;
-      const c=t.conditionId;
-      if(!byMkt[c])byMkt[c]=[];
+      if (!cids.has(t.conditionId)) continue;
+      const trade = fmtTrade(t);
+      if (trade.usd < min) continue;
+      if (trade.odds >= 0.99 || trade.odds <= 0.001) continue;
+      const c = t.conditionId;
+      if (!byMkt[c]) byMkt[c] = [];
       byMkt[c].push(trade);
+      const mkt = markets.find(m => m.conditionId === c);
+      if (mkt) {
+        if (!labelWallets[mkt.label]) labelWallets[mkt.label] = new Set();
+        labelWallets[mkt.label].add(trade.fullWallet);
+      }
       checkNotify(t);
     }
-    for (const c of Object.keys(byMkt)) byMkt[c].sort((a,b)=>b.usd-a.usd);
+    for (const c of Object.keys(byMkt)) byMkt[c].sort((a,b) => b.usd-a.usd);
 
-    const allW=Object.values(byMkt).flat().sort((a,b)=>b.usd-a.usd);
-    const topWhales=allW.filter(t=>t.usd>=Math.max(minTrade,1000)).slice(0,10);
-    const result=markets.map(m=>({...m,trades:(byMkt[m.conditionId]||[]).slice(0,20)}));
-    res.json({ markets:result, topWhales, totalFetched:pool.length, stored:tradeStore.size });
+    const sharpLabels = Object.entries(labelWallets)
+      .filter(([,ws]) => ws.size >= 3)
+      .map(([label,ws]) => ({label, wallets:ws.size}))
+      .sort((a,b) => b.wallets-a.wallets).slice(0,10);
+
+    // Consolidate trades per market (dedup same wallet+outcome)
+    const result = markets.filter(m => m.volume24hr>0 || (byMkt[m.conditionId]||[]).length>0)
+      .map(m => {
+        const raw = (byMkt[m.conditionId]||[]).slice(0,30);
+        return { ...m, trades: consolidateTrades(raw), rawCount: raw.length,
+          uniqueWallets: labelWallets[m.label] ? labelWallets[m.label].size : 0 };
+      })
+      .sort((a,b) => {
+        if (a.trades.length !== b.trades.length) return b.trades.length - a.trades.length;
+        return b.volume24hr - a.volume24hr;
+      });
+
+    // For MLB, also include game schedule
+    let schedule = null;
+    if (cat === 'mlb') {
+      schedule = await cached('mlb-sched', async () => {
+        const today = new Date().toISOString().slice(0,10);
+        const r = await fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team`);
+        if (!r.ok) return [];
+        return ((await r.json()).dates||[])[0]?.games || [];
+      }, 120000);
+    }
+
+    res.json({ events:allEvents.length, markets:result, sharpLabels, schedule, todayCount:pool.length, stored:tradeStore.size });
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
-// ── WALLET TRACKER ───────────────────────────────────────────────────────────
+// ── ALL WHALES + TRENDING ────────────────────────────────────────────────────
+app.get('/api/allwhales', async (req, res) => {
+  const min = parseFloat(req.query.min)||1000;
+  try {
+    await cached('fetch-merge', fetchAndMerge, 25000);
+    const pool = todayTrades();
+    const all = pool.map(fmtTrade).filter(t => t.usd>=min && t.odds<0.99 && t.odds>0.001);
+
+    // Consolidate + categorize
+    const consolidated = consolidateTrades(all).slice(0, 200).map(t => {
+      t.sportIcon = SPORT_ICONS[categorize(t.title)] || '';
+      t.category = categorize(t.title);
+      return t;
+    });
+
+    // Breakdown
+    const breakdown = {};
+    for (const t of pool) {
+      const cat = categorize(t.title||'');
+      const usd = parseFloat(t.size||0)*parseFloat(t.price||0);
+      if (!breakdown[cat]) breakdown[cat] = {count:0, volume:0};
+      breakdown[cat].count++; breakdown[cat].volume += usd;
+    }
+
+    // TRENDING: markets with most unique wallets in last hour
+    const oneHourAgo = Math.floor(Date.now()/1000) - 3600;
+    const recentTrades = pool.filter(t => parseInt(t.timestamp||0) >= oneHourAgo);
+    const mktActivity = {};
+    for (const t of recentTrades) {
+      const title = t.title||'?';
+      if (!mktActivity[title]) mktActivity[title] = { title, wallets: new Set(), volume: 0, count: 0 };
+      mktActivity[title].wallets.add(t.proxyWallet||'');
+      mktActivity[title].volume += parseFloat(t.size||0)*parseFloat(t.price||0);
+      mktActivity[title].count++;
+    }
+    const trending = Object.values(mktActivity)
+      .filter(m => m.wallets.size >= 2)
+      .map(m => ({ title: m.title, wallets: m.wallets.size, volume: m.volume, trades: m.count, icon: SPORT_ICONS[categorize(m.title)]||'' }))
+      .sort((a,b) => b.wallets - a.wallets)
+      .slice(0, 5);
+
+    res.json({ trades:consolidated, todayDate:todayDateET(), todayCount:pool.length, stored:tradeStore.size, breakdown, trending });
+  } catch(e) { res.status(502).json({error:e.message}); }
+});
+
+// ── WALLETS ──────────────────────────────────────────────────────────────────
 app.get('/api/wallets', async (req, res) => {
   try {
     await cached('fetch-merge', fetchAndMerge, 25000);
-    const wallets=new Map();
-    for (const t of allTrades()) {
-      const addr=t.proxyWallet; if(!addr)continue;
-      const usd=parseFloat(t.size||0)*parseFloat(t.price||0);
-      const w=wallets.get(addr)||{address:addr,short:addr.slice(0,5)+'…'+addr.slice(-3),pseudonym:t.pseudonym||'',volume:0,trades:0,biggest:0,buys:0,sells:0,recentBets:[]};
+    const wallets = new Map();
+    for (const t of todayTrades()) {
+      const addr = t.proxyWallet; if (!addr) continue;
+      const usd = parseFloat(t.size||0)*parseFloat(t.price||0);
+      const w = wallets.get(addr)||{address:addr, short:addr.slice(0,5)+'…'+addr.slice(-3), pseudonym:t.pseudonym||'', volume:0, trades:0, biggest:0, buys:0, sells:0, recentBets:[]};
       w.volume+=usd; w.trades++; w.biggest=Math.max(w.biggest,usd);
-      if((t.side||'').toUpperCase()==='BUY')w.buys++;else w.sells++;
-      if(w.recentBets.length<5)w.recentBets.push({title:(t.title||'').slice(0,40),usd,side:(t.side||'BUY').toUpperCase(),outcome:t.outcome||'?',odds:parseFloat(t.price||0)});
+      if ((t.side||'').toUpperCase()==='BUY') w.buys++; else w.sells++;
+      if (w.recentBets.length<5) w.recentBets.push({title:(t.title||'').slice(0,40), usd, side:(t.side||'BUY').toUpperCase(), outcome:t.outcome||'?', odds:parseFloat(t.price||0)});
       wallets.set(addr,w);
     }
     res.json(Array.from(wallets.values()).sort((a,b)=>b.volume-a.volume).slice(0,10));
-  } catch(e) { res.status(502).json({error:e.message}); }
-});
-
-// ── ALL WHALES ───────────────────────────────────────────────────────────────
-app.get('/api/allwhales', async (req, res) => {
-  const min=parseFloat(req.query.min)||1;
-  try {
-    await cached('fetch-merge', fetchAndMerge, 25000);
-    const pool=allTrades();
-    const result=pool.map(fmtTrade).filter(t=>t.usd>=min).sort((a,b)=>b.usd-a.usd).slice(0,100);
-    for (const t of result) { if(t.usd>=50000) { const raw=pool.find(x=>x.proxyWallet===t.fullWallet&&parseInt(x.timestamp||0)===t.timestamp); if(raw)checkNotify(raw); } }
-    res.json({ trades:result, totalFetched:pool.length, stored:tradeStore.size });
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
