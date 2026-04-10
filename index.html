@@ -122,10 +122,10 @@ function TR(t){
 
 async function refresh(){
   $('dot').classList.remove('live');
-  await Promise.allSettled([loadSummary(),...['mlb','nhl','nba','golf','ucl','war'].map(loadSport),loadWhales(),loadWallets()]);
+  await Promise.allSettled([loadSummary(),loadMLB(),...['nhl','nba','golf','ucl','war'].map(loadSport),loadWhales(),loadWallets()]);
   $('dot').classList.add('live');$('upd').textContent=new Date().toLocaleTimeString();cd=30;
 }
-function loadAll(){['mlb','nhl','nba','golf','ucl','war'].forEach(loadSport);loadWhales();}
+function loadAll(){loadMLB();['nhl','nba','golf','ucl','war'].forEach(loadSport);loadWhales();}
 
 // ── SUMMARY ──
 async function loadSummary(){
@@ -136,6 +136,78 @@ async function loadSummary(){
     if(s.topMarket){$('sv3').textContent=F(s.topMarket.volume);$('ss3').textContent=s.topMarket.title;}
     if(s.topWallet){$('sv4').textContent=F(s.topWallet.volume);$('ss4').textContent=s.topWallet.address;}
   }catch(e){}
+}
+
+// ── MLB (game-structured) ──
+function mlbTR(t, icon){
+  const ac=t.usd>=50000?'h':t.usd>=5000?'b':'r';
+  const name=E(t.pseudonym||t.wallet);
+  const pay=t.payout>0?` — potential win: ${F(t.payout)}`:'';
+  const con=t.consolidated>1?` <span style="color:#ff6b35">(${t.consolidated} bets)</span>`:'';
+  const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
+  return`<div style="padding:4px 0;border-bottom:1px solid #0a0e14;font-size:10px;display:flex;justify-content:space-between;align-items:center"><div style="flex:1;overflow:hidden"><span>${icon||t.flag||'·'}</span> <span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span> <b>${E(t.outcome)}</b> at ${(t.odds*100).toFixed(0)}¢ — <b style="color:#00e5ff">${D(t.usd)}</b> — ${name}${pay}${con} <span style="color:#4a6070;font-size:8px">${ts}</span></div><div style="text-align:right;min-width:55px"><b class="ta ${ac}">${F(t.usd)}</b></div></div>`;
+}
+
+async function loadMLB(){
+  const el=$('s-mlb'); if(!el) return;
+  try{
+    const min=getMin();
+    const d=await(await fetch(`/api/mlb?min=${min}`)).json();
+    if(d.error)throw new Error(d.error);
+    const games=d.games||[];
+    $('n-mlb').textContent=games.length;
+    $('fi').textContent=`${(d.todayCount||0).toLocaleString()} today · ${(d.stored||0).toLocaleString()} stored`;
+    if(!games.length){el.innerHTML='<div class="empty">No MLB games today</div>';return;}
+
+    el.innerHTML=games.map((g,i)=>{
+      const time=new Date(g.gameTime).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/New_York'})+' ET';
+      const ml=g.moneyline;
+      let mlBar='';
+      if(ml&&ml.prices.length>=2){
+        const a=(ml.prices[0]*100).toFixed(1),h=(ml.prices[1]*100).toFixed(1);
+        mlBar=`<div style="display:flex;height:16px;border-radius:2px;overflow:hidden;margin:4px 0"><div style="width:${a}%;background:rgba(0,229,255,.2);color:#00e5ff;font-size:9px;font-weight:bold;display:flex;align-items:center;padding:0 6px">${a}%</div><div style="width:${h}%;background:rgba(255,107,53,.2);color:#ff6b35;font-size:9px;font-weight:bold;display:flex;align-items:center;justify-content:flex-end;padding:0 6px">${h}%</div></div>`;
+      }
+      const ouLine=g.ou?`<div style="font-size:10px;color:#4a6070;margin-top:2px">O/U <b style="color:#e0eaf0">${g.ou.line}</b> — Over ${(g.ou.prices[0]*100).toFixed(0)}% / Under ${(g.ou.prices[1]*100).toFixed(0)}%</div>`:'';
+      const hotBadge=g.hot?'<span style="background:rgba(255,107,53,.15);color:#ff6b35;font-size:8px;padding:1px 5px;border-radius:2px;margin-left:6px">🔥 HOT</span>':'';
+      const whaleVol=g.totalWhaleVol>0?`<span style="font-size:9px;color:#00e5ff">Total whale action: ${F(g.totalWhaleVol)}</span>`:'';
+
+      // ML trades section
+      let mlSection='';
+      if(g.mlTrades.length){
+        mlSection=`<div style="margin-top:6px"><div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin-bottom:3px">MONEYLINE TRADES (${g.mlTrades.length})</div>${g.mlTrades.map(t=>mlbTR(t,'🎲')).join('')}</div>`;
+      }
+
+      // O/U trades section
+      let ouSection='';
+      if(g.ouTrades.length){
+        ouSection=`<div style="margin-top:6px"><div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin-bottom:3px">OVER/UNDER TRADES (${g.ouTrades.length})</div>${g.ouTrades.map(t=>{
+          const icon=t.outcome&&t.outcome.toLowerCase().includes('over')?'⬆️':'⬇️';
+          return mlbTR(t,icon);
+        }).join('')}</div>`;
+      }
+
+      // Other trades (spread, first inning, etc)
+      let otherSection='';
+      if(g.otherTrades.length){
+        otherSection=`<div style="margin-top:6px"><div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin-bottom:3px">OTHER PROPS (${g.otherTrades.length})</div>${g.otherTrades.map(t=>mlbTR(t,'📊')).join('')}</div>`;
+      }
+
+      const noActivity=!g.mlTrades.length&&!g.ouTrades.length&&!g.otherTrades.length?`<div style="font-size:10px;color:#253540;padding:8px 0;text-align:center">No whale activity yet — trades under ${F(min)} not shown</div>`:'';
+
+      return`<div class="mc" style="cursor:default;padding:12px 14px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+          <div>
+            <div style="font-size:14px;font-weight:bold;color:#e0eaf0">${E(g.away)} <span style="color:#4a6070">@</span> ${E(g.home)}${hotBadge}</div>
+            <div style="font-size:9px;color:#4a6070;margin-top:2px">${E(g.awayRec)} vs ${E(g.homeRec)} · ${time} · ${E(g.status)}</div>
+            <div style="font-size:10px;color:#4a6070;margin-top:3px">⚾ <b style="color:#e0eaf0">${E(g.awayPitcher)}</b> vs <b style="color:#e0eaf0">${E(g.homePitcher)}</b></div>
+          </div>
+          <div style="text-align:right">${whaleVol}<div style="font-size:9px;color:#4a6070">${g.tradeCount} trades</div></div>
+        </div>
+        ${mlBar}${ouLine}
+        ${mlSection}${ouSection}${otherSection}${noActivity}
+      </div>`;
+    }).join('');
+  }catch(e){el.innerHTML=`<div class="empty">Error: ${E(e.message)}</div>`;}
 }
 
 // ── UNIFIED SPORT TAB LOADER ──

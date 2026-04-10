@@ -171,6 +171,100 @@ app.get('/api/summary', async (req, res) => {
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
+// ── MLB (game-structured) ────────────────────────────────────────────────────
+function teamsMatch(team, title) {
+  const t=team.toLowerCase(), ti=title.toLowerCase();
+  if (ti.includes(t)) return true;
+  const w=t.split(' ');
+  if (w.length>=2){const two=w.slice(-2).join(' '); if(two.length>5&&ti.includes(two)) return true;}
+  return w[w.length-1].length>4 && ti.includes(w[w.length-1]);
+}
+
+app.get('/api/mlb', async (req, res) => {
+  const min = parseFloat(req.query.min) || 1;
+  try {
+    const today = new Date().toISOString().slice(0,10);
+    const [games, polyEvents] = await Promise.all([
+      cached('mlb-sched', async () => {
+        const r = await fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team`);
+        if (!r.ok) return [];
+        return ((await r.json()).dates||[])[0]?.games || [];
+      }, 120000),
+      cached('events-mlb', async () => {
+        const r = await fetch('https://gamma-api.polymarket.com/events?active=true&closed=false&tag_slug=mlb&limit=200');
+        return r.ok ? r.json() : [];
+      }, 120000)
+    ]);
+    await cached('fetch-merge', fetchAndMerge, 25000);
+    const pool = todayTrades();
+
+    const result = games.map(g => {
+      const away = g.teams.away.team.name, home = g.teams.home.team.name;
+      const awayPP = (g.teams.away.probablePitcher||{}).fullName||'TBD';
+      const homePP = (g.teams.home.probablePitcher||{}).fullName||'TBD';
+      const matched = polyEvents.filter(e => teamsMatch(away,e.title||'') && teamsMatch(home,e.title||''));
+
+      // Classify markets per game
+      let ml=null, ou=null;
+      const mlCids=[], ouCids=[], allCids=[];
+      for (const evt of matched) {
+        for (const m of (evt.markets||[])) {
+          if (!m.conditionId) continue;
+          allCids.push(m.conditionId);
+          const q = (m.question||'').toLowerCase();
+          const prices = parseJSON(m.outcomePrices).map(Number);
+          const live = prices.length>=2 && prices[0]>0.01 && prices[0]<0.99;
+          if (!live) continue;
+          if (q.includes('o/u')) {
+            ouCids.push(m.conditionId);
+            if (!ou) ou = { prices, line:(m.question||'').match(/O\/U\s*([\d.]+)/i)?.[1]||'?' };
+          } else if (!q.includes('spread') && !q.includes('first inning')) {
+            mlCids.push(m.conditionId);
+            if (!ml && prices[0]>0.15 && prices[0]<0.85) ml = { prices, outcomes:parseJSON(m.outcomes) };
+          }
+        }
+      }
+
+      // Match trades to this game, split by ML vs O/U
+      const mlSet=new Set(mlCids), ouSet=new Set(ouCids), allSet=new Set(allCids);
+      const mlTrades=[], ouTrades=[], otherTrades=[];
+      for (const t of pool) {
+        if (!allSet.has(t.conditionId)) continue;
+        const trade = fmtTrade(t);
+        if (trade.usd < min || trade.odds>=0.99 || trade.odds<=0.001) continue;
+        if (mlSet.has(t.conditionId)) mlTrades.push(trade);
+        else if (ouSet.has(t.conditionId)) ouTrades.push(trade);
+        else otherTrades.push(trade);
+      }
+      mlTrades.sort((a,b)=>b.usd-a.usd);
+      ouTrades.sort((a,b)=>b.usd-a.usd);
+      otherTrades.sort((a,b)=>b.usd-a.usd);
+
+      const totalVol = mlTrades.concat(ouTrades,otherTrades).reduce((s,t)=>s+t.usd,0);
+      const allGameTrades = mlTrades.concat(ouTrades,otherTrades);
+
+      return {
+        away, home, awayPitcher:awayPP, homePitcher:homePP,
+        gameTime:g.gameDate, status:g.status.detailedState,
+        awayRec:`${g.teams.away.leagueRecord?.wins||0}-${g.teams.away.leagueRecord?.losses||0}`,
+        homeRec:`${g.teams.home.leagueRecord?.wins||0}-${g.teams.home.leagueRecord?.losses||0}`,
+        moneyline:ml, ou,
+        mlTrades: consolidateTrades(mlTrades).slice(0,15),
+        ouTrades: consolidateTrades(ouTrades).slice(0,15),
+        otherTrades: consolidateTrades(otherTrades).slice(0,10),
+        totalWhaleVol: totalVol,
+        tradeCount: allGameTrades.length,
+        hot: totalVol >= 5000
+      };
+    });
+
+    // Sort: hot games first, then by total whale volume
+    result.sort((a,b) => (b.hot?1:0)-(a.hot?1:0) || b.totalWhaleVol-a.totalWhaleVol);
+
+    res.json({ games:result, todayCount:pool.length, stored:tradeStore.size });
+  } catch(e) { res.status(502).json({error:e.message}); }
+});
+
 // ── UNIFIED SPORT ENDPOINT ───────────────────────────────────────────────────
 // /api/sport/mlb, /api/sport/nhl, /api/sport/nba, /api/sport/ucl, /api/sport/golf, /api/sport/war
 const SPORT_TAGS = {
