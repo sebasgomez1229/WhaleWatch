@@ -69,15 +69,28 @@ function todayTrades() {
 loadStore();
 
 // ── PAGINATED FETCHER ────────────────────────────────────────────────────────
+let lastFetchTime = 0, lastFetchAdded = 0;
 async function fetchAndMerge() {
   const pages = await Promise.all([0,1000,2000,3000,4000].map(async off => {
     try { const r = await fetch(`https://data-api.polymarket.com/trades?limit=1000&offset=${off}`, {headers:{Accept:'application/json'}}); return r.ok ? r.json() : []; }
     catch { return []; }
   }));
   const fresh = pages.flat();
-  mergeTrades(fresh);
-  return { fetched: fresh.length, stored: tradeStore.size };
+  const added = mergeTrades(fresh);
+  lastFetchTime = Date.now();
+  lastFetchAdded = added;
+  console.log(`[FETCH] ${new Date().toLocaleTimeString()} | ${fresh.length} fetched | ${added} new | ${tradeStore.size} stored`);
+  return { fetched: fresh.length, added, stored: tradeStore.size, fetchedAt: lastFetchTime };
 }
+
+// Force refresh (bypasses cache)
+app.get('/api/force-refresh', async (req, res) => {
+  try {
+    cache.delete('fetch-merge'); // bust cache
+    const result = await fetchAndMerge();
+    res.json(result);
+  } catch(e) { res.status(502).json({error:e.message}); }
+});
 
 // ── NOTIFICATIONS ────────────────────────────────────────────────────────────
 const notified = new Set();
@@ -149,7 +162,7 @@ app.use(express.static(path.join(__dirname)));
 // ── SUMMARY ──────────────────────────────────────────────────────────────────
 app.get('/api/summary', async (req, res) => {
   try {
-    await cached('fetch-merge', fetchAndMerge, 25000);
+    await cached('fetch-merge', fetchAndMerge, 15000);
     const today = todayTrades();
     let totalVol=0, biggest=null, bigUsd=0;
     const mktVol = new Map(), walVol = new Map();
@@ -195,7 +208,7 @@ app.get('/api/mlb', async (req, res) => {
         return r.ok ? r.json() : [];
       }, 120000)
     ]);
-    await cached('fetch-merge', fetchAndMerge, 25000);
+    await cached('fetch-merge', fetchAndMerge, 15000);
     const pool = todayTrades();
 
     const result = games.map(g => {
@@ -318,7 +331,7 @@ app.get('/api/sport/:cat', async (req, res) => {
     }
 
     // Match trades from store
-    await cached('fetch-merge', fetchAndMerge, 25000);
+    await cached('fetch-merge', fetchAndMerge, 15000);
     const pool = todayTrades();
     const cids = new Set(markets.map(m=>m.conditionId).filter(Boolean));
     const byMkt = {};
@@ -377,7 +390,7 @@ app.get('/api/sport/:cat', async (req, res) => {
 app.get('/api/allwhales', async (req, res) => {
   const min = parseFloat(req.query.min)||1000;
   try {
-    await cached('fetch-merge', fetchAndMerge, 25000);
+    await cached('fetch-merge', fetchAndMerge, 15000);
     const pool = todayTrades();
     const all = pool.map(fmtTrade).filter(t => t.usd>=min && t.odds<0.99 && t.odds>0.001);
 
@@ -414,14 +427,15 @@ app.get('/api/allwhales', async (req, res) => {
       .sort((a,b) => b.wallets - a.wallets)
       .slice(0, 5);
 
-    res.json({ trades:consolidated, todayDate:todayDateET(), todayCount:pool.length, stored:tradeStore.size, breakdown, trending });
+    const newest = pool.length ? parseInt(pool[0].timestamp||0) : 0;
+    res.json({ trades:consolidated, todayDate:todayDateET(), todayCount:pool.length, stored:tradeStore.size, breakdown, trending, lastFetchTime, lastFetchAdded, newestTradeTs:newest });
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
 // ── WALLETS ──────────────────────────────────────────────────────────────────
 app.get('/api/wallets', async (req, res) => {
   try {
-    await cached('fetch-merge', fetchAndMerge, 25000);
+    await cached('fetch-merge', fetchAndMerge, 15000);
     const wallets = new Map();
     for (const t of todayTrades()) {
       const addr = t.proxyWallet; if (!addr) continue;
@@ -434,6 +448,122 @@ app.get('/api/wallets', async (req, res) => {
     }
     res.json(Array.from(wallets.values()).sort((a,b)=>b.volume-a.volume).slice(0,10));
   } catch(e) { res.status(502).json({error:e.message}); }
+});
+
+// ── SMART MONEY ──────────────────────────────────────────────────────────────
+const WATCHLIST_FILE = path.join(__dirname, 'watchlist.json');
+function loadWatchlist() {
+  try { return fs.existsSync(WATCHLIST_FILE) ? JSON.parse(fs.readFileSync(WATCHLIST_FILE,'utf8')) : []; }
+  catch { return []; }
+}
+function saveWatchlist(list) {
+  try { fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list)); } catch {}
+}
+
+// Leaderboard + positions + activity for top wallets
+app.get('/api/smart-money', async (req, res) => {
+  try {
+    // 1. Fetch sports leaderboard
+    const lb = await cached('sm-leaderboard', async () => {
+      const r = await fetch('https://data-api.polymarket.com/v1/leaderboard?category=SPORTS&timePeriod=MONTH&orderBy=PNL&limit=25');
+      if (!r.ok) throw new Error('Leaderboard API ' + r.status);
+      return r.json();
+    }, 300000); // 5 min cache
+
+    // 2. For top 10, fetch positions + recent activity in parallel
+    const topWallets = lb.slice(0, 10);
+    const details = await Promise.all(topWallets.map(async (w, i) => {
+      const addr = w.proxyWallet;
+      const cacheKey = `sm-detail-${addr}`;
+      return cached(cacheKey, async () => {
+        const [posRes, actRes] = await Promise.allSettled([
+          fetch(`https://data-api.polymarket.com/positions?user=${addr}&limit=10&sizeThreshold=0.1`).then(r => r.ok ? r.json() : []),
+          fetch(`https://data-api.polymarket.com/activity?user=${addr}&limit=10`).then(r => r.ok ? r.json() : [])
+        ]);
+        const positions = (posRes.status === 'fulfilled' ? posRes.value : []).filter(Array.isArray(posRes.value) ? () => true : () => false);
+        const posArr = Array.isArray(posRes.status === 'fulfilled' ? posRes.value : []) ? (posRes.value || []) : [];
+        const actArr = Array.isArray(actRes.status === 'fulfilled' ? actRes.value : []) ? (actRes.value || []) : [];
+
+        // Score: blend of PnL, rank, volume
+        const pnl = parseFloat(w.pnl || 0);
+        const vol = parseFloat(w.vol || 0);
+        const rank = parseInt(w.rank || 999);
+
+        // Compute win rate from positions
+        const settled = posArr.filter(p => parseFloat(p.curPrice||0) === 0 || parseFloat(p.curPrice||0) === 1);
+        const wins = settled.filter(p => parseFloat(p.cashPnl||0) > 0).length;
+        const winRate = settled.length > 0 ? wins / settled.length : 0;
+
+        // Open positions with PnL
+        const openPositions = posArr
+          .filter(p => parseFloat(p.size||0) > 0.1 && parseFloat(p.curPrice||0) > 0 && parseFloat(p.curPrice||0) < 1)
+          .map(p => ({
+            title: (p.title||'').slice(0,50),
+            outcome: p.outcome || '?',
+            size: parseFloat(p.size||0),
+            avgPrice: parseFloat(p.avgPrice||0),
+            curPrice: parseFloat(p.curPrice||0),
+            currentValue: parseFloat(p.currentValue||0),
+            cashPnl: parseFloat(p.cashPnl||0),
+            percentPnl: parseFloat(p.percentPnl||0)
+          }))
+          .sort((a,b) => Math.abs(b.cashPnl) - Math.abs(a.cashPnl))
+          .slice(0, 8);
+
+        // Recent trades
+        const recentTrades = actArr
+          .filter(a => a.type === 'TRADE')
+          .map(a => ({
+            title: (a.title||'').slice(0,45),
+            side: (a.side||'BUY').toUpperCase(),
+            outcome: a.outcome || '?',
+            usd: parseFloat(a.usdcSize||0),
+            price: parseFloat(a.price||0),
+            timestamp: parseInt(a.timestamp||0),
+            verified: !!a.transactionHash
+          }))
+          .slice(0, 10);
+
+        const openPnl = openPositions.reduce((s,p) => s+p.cashPnl, 0);
+        const finalScore = (pnl / 1000) + (winRate * 50) + (100 / Math.max(rank, 1));
+
+        return {
+          rank, address: addr,
+          short: addr.slice(0,6)+'…'+addr.slice(-4),
+          pseudonym: w.userName && !w.userName.startsWith('0x') ? w.userName : '',
+          pnl, vol, winRate, settledCount: settled.length,
+          openCashPnl: openPnl,
+          finalScore: parseFloat(finalScore.toFixed(2)),
+          lowSample: settled.length < 10,
+          openPositions, recentTrades
+        };
+      }, 300000); // cache per wallet 5 min
+    }));
+
+    // Sort by final score
+    details.sort((a,b) => b.finalScore - a.finalScore);
+
+    // Watchlist
+    const watchlist = loadWatchlist();
+
+    res.json({ wallets: details, fullLeaderboard: lb.map(w => ({
+      rank: parseInt(w.rank), address: w.proxyWallet,
+      short: w.proxyWallet.slice(0,6)+'…'+w.proxyWallet.slice(-4),
+      pseudonym: w.userName && !w.userName.startsWith('0x') ? w.userName : '',
+      pnl: parseFloat(w.pnl||0), vol: parseFloat(w.vol||0)
+    })), watchlist });
+  } catch(e) { res.status(502).json({error:e.message}); }
+});
+
+// Watchlist management
+app.post('/api/watchlist', express.json(), (req, res) => {
+  const { address, action } = req.body || {};
+  if (!address) return res.status(400).json({error:'address required'});
+  let list = loadWatchlist();
+  if (action === 'remove') list = list.filter(w => w !== address);
+  else if (!list.includes(address)) list.push(address);
+  saveWatchlist(list);
+  res.json({ watchlist: list });
 });
 
 app.listen(PORT, () => console.log('WhaleWatch running at http://localhost:'+PORT));

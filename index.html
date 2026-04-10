@@ -63,7 +63,16 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#080c10}::-webkit-scrollbar-thumb{background:#1a2530}
 @media(max-width:600px){.sum{grid-template-columns:repeat(2,1fr)}.tabs{flex-wrap:nowrap}}
 </style></head><body>
-<div class="hdr"><div class="logo">WHALE<span>WATCH</span></div><div class="hdr-r"><span class="nc" id="nc">0 NEW</span><div class="dot" id="dot"></div><span id="upd">—</span><span id="cd" style="font-variant-numeric:tabular-nums">30s</span></div></div>
+<div class="hdr">
+  <div class="logo">WHALE<span>WATCH</span></div>
+  <div class="hdr-r">
+    <span class="nc" id="nc">0 NEW</span>
+    <button id="force-btn" onclick="forceRefresh()" style="background:#00e5ff;border:none;color:#080c10;padding:4px 10px;cursor:pointer;font-family:monospace;font-size:9px;font-weight:bold;letter-spacing:1px;border-radius:2px;transition:.2s">⟳ REFRESH</button>
+    <div class="dot" id="dot"></div>
+    <span id="stale" style="font-size:8px;color:#4a6070"></span>
+    <span id="cd" style="font-variant-numeric:tabular-nums;font-size:10px;color:#4a6070">30s</span>
+  </div>
+</div>
 <div class="sum">
   <div class="sc"><div class="sl">Today Volume</div><div class="sv" id="sv1">—</div><div class="ss" id="ss1">—</div></div>
   <div class="sc"><div class="sl">Biggest Bet</div><div class="sv" id="sv2">—</div><div class="ss" id="ss2">—</div></div>
@@ -78,7 +87,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
   <div class="tab" onclick="go('ucl')">⚽ UCL <span class="badge" id="n-ucl"></span></div>
   <div class="tab" onclick="go('war')">🚨 WAR <span class="badge" id="n-war"></span></div>
   <div class="tab" onclick="go('whales')">🐳 ALL WHALES <span class="badge" id="n-whales"></span></div>
-  <div class="tab" onclick="go('wallets')">🏆 WALLETS</div>
+  <div class="tab" onclick="go('smart')">🏆 SMART MONEY <span class="badge" id="n-smart"></span></div>
 </div>
 <div class="fb">
   <div><div class="fbl">MIN TRADE</div><div class="fbv" id="mv">$1.0K</div></div>
@@ -92,23 +101,48 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 <div class="panel" id="p-ucl"><div class="section" id="s-ucl"><div class="empty"><span class="spin"></span></div></div></div>
 <div class="panel" id="p-war"><div class="section" id="s-war"><div class="empty"><span class="spin"></span></div></div></div>
 <div class="panel" id="p-whales"><div class="section" id="s-whales"><div class="empty"><span class="spin"></span></div></div></div>
-<div class="panel" id="p-wallets"><div class="section" id="s-wallets"><div class="empty"><span class="spin"></span></div></div></div>
+<div class="panel" id="p-smart"><div class="section" id="s-smart"><div class="empty"><span class="spin"></span></div></div></div>
 
 <script>
 const $=id=>document.getElementById(id);
 const F=n=>n>=1e6?'$'+(n/1e6).toFixed(2)+'M':n>=1e3?'$'+(n/1e3).toFixed(1)+'K':'$'+Math.round(n);
 const D=n=>'$'+Math.round(n).toLocaleString();
 const E=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-const TABS=['mlb','nhl','nba','golf','ucl','war','whales','wallets'];
-let newCt=0,cd=30;
+const TABS=['mlb','nhl','nba','golf','ucl','war','whales','smart'];
+let newCt=0,cd=30,lastRefreshMs=0;
 
 function go(t){TABS.forEach((x,i)=>{$('p-'+x).classList.toggle('active',x===t);document.querySelectorAll('.tab')[i].classList.toggle('active',x===t);});}
 function getMin(){return parseInt($('ms').value)||1000;}
 function onS(v){$('mv').textContent=F(v);loadAll();}
 
-setInterval(()=>{cd--;if(cd<=0){cd=30;refresh();}$('cd').textContent=cd+'s';},1000);
+// Countdown + stale display
+setInterval(()=>{
+  cd--;
+  if(cd<=0){cd=30;refresh();}
+  $('cd').textContent='Next: '+cd+'s';
+  // Show staleness
+  if(lastRefreshMs){
+    const ago=Math.round((Date.now()-lastRefreshMs)/1000);
+    $('stale').textContent=ago<5?'Just now':ago+'s ago';
+    $('stale').style.color=ago>60?'#ff3366':ago>30?'#ff6b35':'#4a6070';
+  }
+},1000);
 
 function bumpNew(n){newCt+=n;const e=$('nc');if(newCt>0){e.textContent=newCt+' NEW';e.style.display='';}else e.style.display='none';}
+
+async function forceRefresh(){
+  const btn=$('force-btn');
+  btn.textContent='⟳ FETCHING...';btn.style.background='#ff6b35';
+  try{
+    await fetch('/api/force-refresh');
+    await refresh();
+    btn.style.background='#39ff14';btn.textContent='✓ DONE';
+    setTimeout(()=>{btn.style.background='#00e5ff';btn.textContent='⟳ REFRESH';},1500);
+  }catch(e){
+    btn.style.background='#ff3366';btn.textContent='✗ ERROR';
+    setTimeout(()=>{btn.style.background='#00e5ff';btn.textContent='⟳ REFRESH';},2000);
+  }
+}
 
 // Shared trade row renderer
 function TR(t){
@@ -122,8 +156,9 @@ function TR(t){
 
 async function refresh(){
   $('dot').classList.remove('live');
-  await Promise.allSettled([loadSummary(),loadMLB(),...['nhl','nba','golf','ucl','war'].map(loadSport),loadWhales(),loadWallets()]);
-  $('dot').classList.add('live');$('upd').textContent=new Date().toLocaleTimeString();cd=30;
+  lastRefreshMs=Date.now();
+  await Promise.allSettled([loadSummary(),loadMLB(),...['nhl','nba','golf','ucl','war'].map(loadSport),loadWhales(),loadSmart()]);
+  $('dot').classList.add('live');cd=30;
 }
 function loadAll(){loadMLB();['nhl','nba','golf','ucl','war'].forEach(loadSport);loadWhales();}
 
@@ -254,68 +289,175 @@ async function loadSport(cat){
   }catch(e){el.innerHTML=`<div class="empty">Error: ${E(e.message)}</div>`;}
 }
 
-// ── ALL WHALES ──
+// ── ALL WHALES (incremental prepend) ──
 const seen=new Set();
+let whalesFirstLoad=true;
+
+function whaleCard(t, isNew){
+  const cls=t.usd>=1e6?'mil':t.usd>=50000?'big':t.odds<=0.20?'long':'';
+  const ac=t.usd>=1e6?'mil':t.usd>=50000?'big':'reg';
+  const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
+  const pay=t.payout>0?`<span style="color:#ffd700;font-size:9px">+${F(t.payout)}</span>`:'';
+  const icon=t.sportIcon||'';
+  const con=t.consolidated>1?` <span style="color:#ff6b35;font-size:8px">(${t.consolidated} bets)</span>`:'';
+  const anim=isNew?' style="animation:flashIn 1.5s"':'';
+  const badge=isNew?'<span class="nb" style="background:#39ff14;color:#080c10;font-size:7px;padding:1px 4px;border-radius:2px;margin-left:3px">🆕 NEW</span>':'';
+  return`<div class="wc ${cls}" data-wid="${E(t.id)}"${anim}><div class="wf">${t.flag||icon||'·'}</div><div><div class="wt">${icon} ${E(t.title).slice(0,58)}${badge}${con}</div><div class="wm"><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span><span>${E(t.outcome)}</span><span>${E(t.pseudonym||t.wallet)}</span><span>${D(t.usd)} at ${(t.odds*100).toFixed(0)}¢</span><span>${ts}</span>${pay}</div></div><div class="wr"><div class="wa ${ac}">${F(t.usd)}</div><div class="wo">@${(t.odds*100).toFixed(0)}¢</div></div></div>`;
+}
+
 async function loadWhales(){
   try{
     const min=getMin();
-    const d=await(await fetch(`/api/allwhales?min=${min}`)).json();
+    // Cache-bust with timestamp
+    const d=await(await fetch(`/api/allwhales?min=${min}&_=${Date.now()}`)).json();
     if(d.error)throw new Error(d.error);
     const trades=d.trades||[];
     const trending=d.trending||[];
     const bd=d.breakdown||{};
     $('n-whales').textContent=trades.length;
-    $('fi').textContent=`${(d.todayCount||0).toLocaleString()} today · ${(d.stored||0).toLocaleString()} stored`;
+
+    // Update staleness from server data
+    const fetchAge=d.lastFetchTime?Math.round((Date.now()-d.lastFetchTime)/1000):0;
+    const newestAge=d.newestTradeTs?Math.round(Date.now()/1000-d.newestTradeTs):0;
+    $('fi').textContent=`${(d.todayCount||0).toLocaleString()} today · fetched ${fetchAge}s ago · newest trade ${newestAge}s ago`;
 
     const el=$('s-whales');
-    // Build header + breakdown
-    const bdStr=Object.entries(bd).sort((a,b)=>b[1].count-a[1].count).map(([k,v])=>{
-      const icons={MLB:'⚾',NHL:'🏒',NBA:'🏀',Soccer:'⚽',Golf:'⛳',War:'🚨',Crypto:'₿',Other:'📊'};
-      return`<span>${icons[k]||''} ${k}: <b style="color:#e0eaf0">${v.count}</b></span>`;
-    }).join('');
 
-    let html=`<div class="today-hdr"><b>Today's Feed</b><span>${E(d.todayDate||'')}</span><span>${(d.todayCount||0).toLocaleString()} trades · ${trades.length} shown >= ${F(min)}</span></div><div class="bd">${bdStr}</div>`;
-
-    // Trending
-    if(trending.length) html+=`<div class="trend"><div class="trend-t">🔥 TRENDING — MOST WHALE ACTIVITY LAST HOUR</div>${trending.map(t=>`<div class="sb-r"><span style="color:#e0eaf0;font-weight:bold">${t.icon} ${E(t.title).slice(0,40)}</span><span style="color:#ff6b35">${t.wallets}w · ${t.trades}t · ${F(t.volume)}</span></div>`).join('')}</div>`;
-
-    if(!trades.length){html+=`<div class="empty">No trades >= ${F(min)} today</div>`;el.innerHTML=html;return;}
-
-    // Check for new trades
+    // Find new trades not seen yet
     const newOnes=trades.filter(t=>t.id&&!seen.has(t.id));
-    newOnes.forEach(t=>seen.add(t.id));
-    if(seen.size>0 && newOnes.length>0 && el.querySelector('.wc')) bumpNew(newOnes.length);
-    trades.forEach(t=>seen.add(t.id));
 
-    html+=trades.map(t=>{
-      const cls=t.usd>=1e6?'mil':t.usd>=50000?'big':t.odds<=0.20?'long':'';
-      const ac=t.usd>=1e6?'mil':t.usd>=50000?'big':'reg';
-      const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
-      const pay=t.payout>0?`<span style="color:#ffd700;font-size:9px">+${F(t.payout)}</span>`:'';
-      const icon=t.sportIcon||'';
-      const con=t.consolidated>1?` <span style="color:#ff6b35;font-size:8px">(${t.consolidated} bets consolidated)</span>`:'';
-      const isNew=newOnes.some(n=>n.id===t.id);
-      const anim=isNew?' style="animation:flashIn 1.5s"':'';
-      const badge=isNew?'<span class="nb">NEW</span>':'';
-      return`<div class="wc ${cls}" data-wid="${E(t.id)}"${anim}><div class="wf">${t.flag||icon||'·'}</div><div><div class="wt">${icon} ${E(t.title).slice(0,58)}${badge}${con}</div><div class="wm"><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span><span>${E(t.outcome)}</span><span>${E(t.pseudonym||t.wallet)}</span><span>${D(t.usd)} at ${(t.odds*100).toFixed(0)}¢</span><span>${ts}</span>${pay}</div></div><div class="wr"><div class="wa ${ac}">${F(t.usd)}</div><div class="wo">@${(t.odds*100).toFixed(0)}¢</div></div></div>`;
-    }).join('');
+    // FIRST LOAD: build everything
+    if(whalesFirstLoad || !el.querySelector('[data-wid]')){
+      whalesFirstLoad=false;
+      trades.forEach(t=>seen.add(t.id));
 
-    el.innerHTML=html;
-  }catch(e){$('s-whales').innerHTML=`<div class="empty">Error: ${E(e.message)}</div>`;}
+      const bdStr=Object.entries(bd).sort((a,b)=>b[1].count-a[1].count).map(([k,v])=>{
+        const icons={MLB:'⚾',NHL:'🏒',NBA:'🏀',Soccer:'⚽',Golf:'⛳',War:'🚨',Crypto:'₿',Other:'📊'};
+        return`<span>${icons[k]||''} ${k}: <b style="color:#e0eaf0">${v.count}</b></span>`;
+      }).join('');
+
+      let hdr=`<div id="wh-hdr" class="today-hdr"><b>Today's Feed</b><span>${E(d.todayDate||'')}</span><span>${(d.todayCount||0).toLocaleString()} trades · ${trades.length} shown >= ${F(min)}</span></div><div id="wh-bd" class="bd">${bdStr}</div>`;
+      if(trending.length) hdr+=`<div id="wh-trend" class="trend"><div class="trend-t">🔥 TRENDING — LAST HOUR</div>${trending.map(t=>`<div class="sb-r"><span style="color:#e0eaf0;font-weight:bold">${t.icon} ${E(t.title).slice(0,40)}</span><span style="color:#ff6b35">${t.wallets}w · ${t.trades}t · ${F(t.volume)}</span></div>`).join('')}</div>`;
+      hdr+=`<div id="wh-feed"></div>`;
+      el.innerHTML=hdr;
+
+      const feed=$('wh-feed');
+      if(!trades.length){feed.innerHTML=`<div class="empty">No trades >= ${F(min)} today</div>`;return;}
+      feed.innerHTML=trades.map(t=>whaleCard(t,false)).join('');
+      return;
+    }
+
+    // SUBSEQUENT LOADS: update header, prepend new trades
+    // Update header stats (don't rebuild the whole feed)
+    const hdrEl=$('wh-hdr');
+    if(hdrEl) hdrEl.innerHTML=`<b>Today's Feed</b><span>${E(d.todayDate||'')}</span><span>${(d.todayCount||0).toLocaleString()} trades · ${trades.length} shown >= ${F(min)}</span>`;
+
+    // Update breakdown
+    const bdEl=$('wh-bd');
+    if(bdEl){
+      const bdStr=Object.entries(bd).sort((a,b)=>b[1].count-a[1].count).map(([k,v])=>{
+        const icons={MLB:'⚾',NHL:'🏒',NBA:'🏀',Soccer:'⚽',Golf:'⛳',War:'🚨',Crypto:'₿',Other:'📊'};
+        return`<span>${icons[k]||''} ${k}: <b style="color:#e0eaf0">${v.count}</b></span>`;
+      }).join('');
+      bdEl.innerHTML=bdStr;
+    }
+
+    // Prepend NEW trades to feed (don't touch existing)
+    if(newOnes.length>0){
+      newOnes.forEach(t=>seen.add(t.id));
+      bumpNew(newOnes.length);
+      const feed=$('wh-feed');
+      if(feed){
+        const frag=document.createElement('div');
+        frag.innerHTML=newOnes.map(t=>whaleCard(t,true)).join('');
+        const first=feed.firstChild;
+        while(frag.lastChild) feed.insertBefore(frag.lastChild, first);
+        // Cap at 200
+        while(feed.children.length>200) feed.removeChild(feed.lastChild);
+      }
+    }
+
+    // Remove NEW badges after 2 min
+    el.querySelectorAll('.nb').forEach(badge=>{
+      const card=badge.closest('[data-wid]');
+      if(!card)return;
+      // Check if card has been in DOM > 2 min by checking if we've seen it for 2+ refreshes
+      setTimeout(()=>badge.remove(), 120000);
+    });
+
+  }catch(e){if(whalesFirstLoad)$('s-whales').innerHTML=`<div class="empty">Error: ${E(e.message)}</div>`;}
 }
 
-// ── WALLETS ──
-async function loadWallets(){
+// ── SMART MONEY ──
+let smWatchlist=[];
+async function loadSmart(){
+  const el=$('s-smart'); if(!el)return;
   try{
-    const ws=await(await fetch('/api/wallets')).json();
-    if(ws.error)throw new Error(ws.error);
-    const medals=['🥇','🥈','🥉'];
-    $('s-wallets').innerHTML=ws.length?ws.map((w,i)=>{
-      const bp=w.trades>0?Math.round((w.buys/w.trades)*100):50;
-      const bets=w.recentBets.map(b=>`<div class="wl-bt"><span><span class="${b.side==='BUY'?'buy':'sell'}">${b.side}</span> ${E(b.outcome)} · ${E(b.title)}</span><span>${F(b.usd)} @${(b.odds*100).toFixed(0)}¢</span></div>`).join('');
-      return`<div class="wlc"><div class="wl-h"><div style="display:flex;align-items:center"><span style="font-size:16px;margin-right:6px">${medals[i]||(i+1)}</span><div><div class="wl-n">${E(w.pseudonym||w.short)}</div><div class="wl-a">${w.address.slice(0,8)}…${w.address.slice(-6)}</div></div></div><div class="wl-v">${F(w.volume)}</div></div><div class="wl-s"><span>Trades: <b>${w.trades}</b></span><span>Biggest: <b>${F(w.biggest)}</b></span><span>Buy: <b>${bp}%</b></span></div>${bets?`<div class="wl-b">${bets}</div>`:''}</div>`;
-    }).join(''):'<div class="empty">No wallets</div>';
-  }catch(e){$('s-wallets').innerHTML=`<div class="empty">Error</div>`;}
+    const d=await(await fetch('/api/smart-money')).json();
+    if(d.error)throw new Error(d.error);
+    const wallets=d.wallets||[];
+    const lb=d.fullLeaderboard||[];
+    smWatchlist=d.watchlist||[];
+    $('n-smart').textContent=wallets.length;
+
+    let html='';
+
+    // Leaderboard summary
+    if(lb.length){
+      html+=`<div style="margin-bottom:12px"><div style="font-size:10px;color:#ffd700;letter-spacing:2px;font-weight:bold;margin-bottom:6px">🏆 SPORTS LEADERBOARD — TOP 25 BY PNL THIS MONTH</div>`;
+      html+=lb.map((w,i)=>{
+        const medals=['🥇','🥈','🥉'];
+        const rc=i<3?'#ffd700':i<10?'#00e5ff':'#4a6070';
+        return`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #0a0e14;font-size:10px"><span style="color:${rc};min-width:28px">${medals[i]||'#'+(i+1)}</span><span style="color:#e0eaf0;font-weight:bold;flex:1">${E(w.pseudonym||w.short)}</span><span style="color:${w.pnl>=0?'#39ff14':'#ff3366'};font-weight:bold;min-width:80px;text-align:right">${w.pnl>=0?'+':''}${F(w.pnl)}</span><span style="color:#4a6070;min-width:70px;text-align:right">${F(w.vol)} vol</span></div>`;
+      }).join('')+'</div>';
+    }
+
+    // Detailed wallet cards
+    html+=wallets.map((w,i)=>{
+      const onWL=smWatchlist.includes(w.address);
+      const wlBtn=`<button onclick="event.stopPropagation();toggleWatch('${w.address}')" style="background:${onWL?'#ff6b35':'transparent'};border:1px solid ${onWL?'#ff6b35':'#4a6070'};color:${onWL?'#080c10':'#4a6070'};padding:2px 8px;cursor:pointer;font-family:monospace;font-size:8px;border-radius:2px">${onWL?'★ FOLLOWING':'☆ FOLLOW'}</button>`;
+      const wr=w.winRate*100;
+      const warn=w.lowSample?'<span style="color:#ff6b35;font-size:8px;margin-left:4px">⚠ low sample</span>':'';
+
+      // Score display
+      let scoreHtml=`<div style="display:flex;gap:12px;font-size:9px;color:#4a6070;margin:6px 0;flex-wrap:wrap"><span>Score: <b style="color:#ffd700">${w.finalScore.toFixed(0)}</b></span><span>PnL: <b style="color:${w.pnl>=0?'#39ff14':'#ff3366'}">${w.pnl>=0?'+':''}${F(w.pnl)}</b></span><span>Open PnL: <b style="color:${w.openCashPnl>=0?'#39ff14':'#ff3366'}">${w.openCashPnl>=0?'+':''}${F(w.openCashPnl)}</b></span><span>Win: <b style="color:#e0eaf0">${wr.toFixed(0)}%</b> (${w.settledCount} settled)${warn}</span><span>Vol: <b>${F(w.vol)}</b></span></div>`;
+
+      // Open positions
+      let posHtml='';
+      if(w.openPositions.length){
+        posHtml=`<div style="margin-top:6px"><div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin-bottom:3px">OPEN POSITIONS (${w.openPositions.length})</div>${w.openPositions.map(p=>{
+          const pnlColor=p.cashPnl>=0?'#39ff14':'#ff3366';
+          const pnlSign=p.cashPnl>=0?'+':'';
+          return`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #0a0e14;font-size:9px"><span style="color:#e0eaf0;flex:1">${E(p.title)} · <b>${E(p.outcome)}</b></span><span style="color:#4a6070;margin:0 8px">size: ${F(p.size)} · avg: ${(p.avgPrice*100).toFixed(0)}¢ · now: ${(p.curPrice*100).toFixed(0)}¢</span><span style="color:${pnlColor};font-weight:bold;min-width:60px;text-align:right">${pnlSign}${F(p.cashPnl)}</span></div>`;
+        }).join('')}</div>`;
+      }
+
+      // Recent trades
+      let tradesHtml='';
+      if(w.recentTrades.length){
+        tradesHtml=`<div style="margin-top:6px"><div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin-bottom:3px">RECENT TRADES (${w.recentTrades.length})</div>${w.recentTrades.map(t=>{
+          const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
+          const vBadge=t.verified?'<span style="color:#39ff14;font-size:7px">✓</span>':'';
+          return`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #0a0e14;font-size:9px"><span><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span> ${E(t.outcome)} · ${E(t.title)} ${vBadge}</span><span style="color:#4a6070">${D(t.usd)} @${(t.price*100).toFixed(0)}¢ · ${ts}</span></div>`;
+        }).join('')}</div>`;
+      }
+
+      const medals=['🥇','🥈','🥉'];
+      return`<div class="mc" style="cursor:default;padding:12px 14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><span style="font-size:14px;margin-right:4px">${medals[i]||(i+1)}</span><b style="font-size:13px;color:#e0eaf0">${E(w.pseudonym||w.short)}</b><div style="font-size:8px;color:#4a6070">${w.address.slice(0,10)}…${w.address.slice(-6)}</div></div><div style="text-align:right">${wlBtn}<div style="font-size:16px;font-weight:bold;color:${w.pnl>=0?'#39ff14':'#ff3366'};margin-top:2px">${w.pnl>=0?'+':''}${F(w.pnl)}</div></div></div>${scoreHtml}${posHtml}${tradesHtml}</div>`;
+    }).join('');
+
+    el.innerHTML=html||'<div class="empty">No smart money data</div>';
+  }catch(e){el.innerHTML=`<div class="empty">Error: ${E(e.message)}</div>`;}
+}
+
+async function toggleWatch(addr){
+  const action=smWatchlist.includes(addr)?'remove':'add';
+  try{
+    const r=await fetch('/api/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:addr,action})});
+    const d=await r.json();
+    smWatchlist=d.watchlist||[];
+    loadSmart();
+  }catch(e){}
 }
 
 refresh();
