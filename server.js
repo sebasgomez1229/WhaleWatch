@@ -92,6 +92,124 @@ app.get('/api/force-refresh', async (req, res) => {
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
+// ── FEATURED MATCH ───────────────────────────────────────────────────────────
+app.get('/api/featured', async (req, res) => {
+  try {
+    const events = await cached('featured-events', async () => {
+      const results = await Promise.all(['atp','tennis','monte-carlo'].map(async tag => {
+        try { const r = await fetch(`https://gamma-api.polymarket.com/events?active=true&closed=false&tag_slug=${tag}&limit=50`); return r.ok ? r.json() : []; }
+        catch { return []; }
+      }));
+      const seen = new Set(), merged = [];
+      for (const b of results) for (const e of b) { if (!seen.has(e.id)) { seen.add(e.id); merged.push(e); } }
+      return merged;
+    }, 120000);
+
+    // Find the head-to-head match event first, fallback to Winner tournament
+    let sinnerMkt = null, alcarazMkt = null, eventTitle = '', allMatchCids = [];
+    const extraMarkets = []; // O/U, sets, etc
+
+    // Priority 1: head-to-head event (highest volume)
+    for (const evt of events) {
+      const t = (evt.title||'').toLowerCase();
+      if (t.includes('vs') && ((t.includes('alcaraz') && t.includes('sinner')) || t.includes('monte carlo'))) {
+        eventTitle = evt.title;
+        for (const m of (evt.markets||[])) {
+          const q = (m.question||'').toLowerCase();
+          const prices = parseJSON(m.outcomePrices).map(Number);
+          if (!prices.length || prices[0]<=0.005 || prices[0]>=0.995) continue;
+          allMatchCids.push(m.conditionId);
+          // Main match winner (first market, or the one with highest volume)
+          if (!sinnerMkt && !alcarazMkt && !q.includes('o/u') && !q.includes('set') && !q.includes('handicap') && !q.includes('games')) {
+            // Outcomes are usually [Alcaraz, Sinner] or similar
+            const outcomes = parseJSON(m.outcomes);
+            const isAlcarazFirst = (outcomes[0]||'').toLowerCase().includes('alcaraz');
+            sinnerMkt = { question:m.question, conditionId:m.conditionId||'', yesPrice: isAlcarazFirst ? prices[1]||0 : prices[0]||0, volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||0) };
+            alcarazMkt = { question:m.question, conditionId:m.conditionId||'', yesPrice: isAlcarazFirst ? prices[0]||0 : prices[1]||0, volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||0) };
+          } else {
+            extraMarkets.push({ question:m.question, conditionId:m.conditionId||'', prices, volume:parseFloat(m.volume||0) });
+          }
+        }
+        break;
+      }
+    }
+
+    // Priority 2: Winner tournament (individual player markets)
+    if (!sinnerMkt) {
+      for (const evt of events) {
+        if (!(evt.title||'').toLowerCase().includes('monte carlo') || !(evt.title||'').toLowerCase().includes('winner')) continue;
+        if (!eventTitle) eventTitle = evt.title;
+        for (const m of (evt.markets||[])) {
+          const q = (m.question||'').toLowerCase();
+          const prices = parseJSON(m.outcomePrices).map(Number);
+          if (!prices.length) continue;
+          allMatchCids.push(m.conditionId);
+          if (q.includes('sinner') && !sinnerMkt) sinnerMkt = { question:m.question, conditionId:m.conditionId||'', yesPrice:prices[0]||0, volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||0) };
+          if (q.includes('alcaraz') && !alcarazMkt) alcarazMkt = { question:m.question, conditionId:m.conditionId||'', yesPrice:prices[0]||0, volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||0) };
+        }
+      }
+    }
+
+    if (!sinnerMkt && !alcarazMkt) return res.json({ found: false });
+
+    // Match trades
+    await cached('fetch-merge', fetchAndMerge, 15000);
+    const pool = todayTrades();
+    const targetCids = new Set(allMatchCids.filter(Boolean));
+
+    const sinnerTrades = [], alcarazTrades = [], otherTrades = [];
+    const sinnerWallets = new Set(), alcarazWallets = new Set();
+    let sinnerVol = 0, alcarazVol = 0;
+
+    // For the head-to-head market, both players share the same conditionId
+    // We distinguish by outcome name
+    const mainCid = sinnerMkt?.conditionId;
+    for (const t of pool) {
+      if (!targetCids.has(t.conditionId)) continue;
+      const trade = fmtTrade(t);
+      trade.flag = trade.usd >= 50000 ? '🚨' : trade.usd >= 10000 ? '🐳' : trade.usd >= 1000 ? '🎾' : '';
+      const out = (trade.outcome||'').toLowerCase();
+      const title = (trade.title||'').toLowerCase();
+
+      if (out.includes('sinner') || (trade.side==='BUY' && !out.includes('alcaraz') && title.includes('sinner'))) {
+        sinnerTrades.push(trade); sinnerWallets.add(trade.fullWallet); sinnerVol += trade.usd;
+      } else if (out.includes('alcaraz') || title.includes('alcaraz')) {
+        alcarazTrades.push(trade); alcarazWallets.add(trade.fullWallet); alcarazVol += trade.usd;
+      } else {
+        otherTrades.push(trade);
+      }
+      if (trade.usd >= 10000) checkNotify(t);
+    }
+    sinnerTrades.sort((a,b) => b.usd-a.usd);
+    alcarazTrades.sort((a,b) => b.usd-a.usd);
+    otherTrades.sort((a,b) => b.usd-a.usd);
+
+    // Sharp money verdict
+    let verdict = 'No clear consensus';
+    if (sinnerWallets.size > alcarazWallets.size + 1) verdict = 'Sharp Money on: SINNER';
+    else if (alcarazWallets.size > sinnerWallets.size + 1) verdict = 'Sharp Money on: ALCARAZ';
+    else if (sinnerVol > alcarazVol * 1.5) verdict = 'Sharp Money on: SINNER (by volume)';
+    else if (alcarazVol > sinnerVol * 1.5) verdict = 'Sharp Money on: ALCARAZ (by volume)';
+
+    // Previous odds for movement
+    const prevKey = 'featured-prev-odds';
+    const prev = cache.get(prevKey)?.data || {};
+    const sinnerDelta = prev.sinner != null ? (sinnerMkt?.yesPrice||0) - prev.sinner : 0;
+    const alcarazDelta = prev.alcaraz != null ? (alcarazMkt?.yesPrice||0) - prev.alcaraz : 0;
+    cache.set(prevKey, { data: { sinner: sinnerMkt?.yesPrice||0, alcaraz: alcarazMkt?.yesPrice||0 }, ts: Date.now() });
+
+    res.json({
+      found: true, eventTitle,
+      sinner: { ...sinnerMkt, trades: consolidateTrades(sinnerTrades).slice(0,15), wallets: sinnerWallets.size, totalVol: sinnerVol, delta: parseFloat(sinnerDelta.toFixed(4)) },
+      alcaraz: { ...alcarazMkt, trades: consolidateTrades(alcarazTrades).slice(0,15), wallets: alcarazWallets.size, totalVol: alcarazVol, delta: parseFloat(alcarazDelta.toFixed(4)) },
+      otherTrades: consolidateTrades(otherTrades).slice(0,10),
+      extraMarkets: extraMarkets.slice(0,8),
+      verdict, totalVolume: (sinnerMkt?.volume||0) + (alcarazMkt?.volume||0),
+      totalVol24: (sinnerMkt?.volume24hr||0) + (alcarazMkt?.volume24hr||0)
+    });
+  } catch(e) { res.status(502).json({error:e.message}); }
+});
+
 // ── NOTIFICATIONS ────────────────────────────────────────────────────────────
 const notified = new Set();
 function checkNotify(t) {
