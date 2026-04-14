@@ -92,123 +92,7 @@ app.get('/api/force-refresh', async (req, res) => {
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
-// ── FEATURED MATCH ───────────────────────────────────────────────────────────
-app.get('/api/featured', async (req, res) => {
-  try {
-    const events = await cached('featured-events', async () => {
-      const results = await Promise.all(['atp','tennis','monte-carlo'].map(async tag => {
-        try { const r = await fetch(`https://gamma-api.polymarket.com/events?active=true&closed=false&tag_slug=${tag}&limit=50`); return r.ok ? r.json() : []; }
-        catch { return []; }
-      }));
-      const seen = new Set(), merged = [];
-      for (const b of results) for (const e of b) { if (!seen.has(e.id)) { seen.add(e.id); merged.push(e); } }
-      return merged;
-    }, 120000);
-
-    // Find the head-to-head match event first, fallback to Winner tournament
-    let sinnerMkt = null, alcarazMkt = null, eventTitle = '', allMatchCids = [];
-    const extraMarkets = []; // O/U, sets, etc
-
-    // Priority 1: head-to-head event (highest volume)
-    for (const evt of events) {
-      const t = (evt.title||'').toLowerCase();
-      if (t.includes('vs') && ((t.includes('alcaraz') && t.includes('sinner')) || t.includes('monte carlo'))) {
-        eventTitle = evt.title;
-        for (const m of (evt.markets||[])) {
-          const q = (m.question||'').toLowerCase();
-          const prices = parseJSON(m.outcomePrices).map(Number);
-          if (!prices.length || prices[0]<=0.005 || prices[0]>=0.995) continue;
-          allMatchCids.push(m.conditionId);
-          // Main match winner (first market, or the one with highest volume)
-          if (!sinnerMkt && !alcarazMkt && !q.includes('o/u') && !q.includes('set') && !q.includes('handicap') && !q.includes('games')) {
-            // Outcomes are usually [Alcaraz, Sinner] or similar
-            const outcomes = parseJSON(m.outcomes);
-            const isAlcarazFirst = (outcomes[0]||'').toLowerCase().includes('alcaraz');
-            sinnerMkt = { question:m.question, conditionId:m.conditionId||'', yesPrice: isAlcarazFirst ? prices[1]||0 : prices[0]||0, volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||0) };
-            alcarazMkt = { question:m.question, conditionId:m.conditionId||'', yesPrice: isAlcarazFirst ? prices[0]||0 : prices[1]||0, volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||0) };
-          } else {
-            extraMarkets.push({ question:m.question, conditionId:m.conditionId||'', prices, volume:parseFloat(m.volume||0) });
-          }
-        }
-        break;
-      }
-    }
-
-    // Priority 2: Winner tournament (individual player markets)
-    if (!sinnerMkt) {
-      for (const evt of events) {
-        if (!(evt.title||'').toLowerCase().includes('monte carlo') || !(evt.title||'').toLowerCase().includes('winner')) continue;
-        if (!eventTitle) eventTitle = evt.title;
-        for (const m of (evt.markets||[])) {
-          const q = (m.question||'').toLowerCase();
-          const prices = parseJSON(m.outcomePrices).map(Number);
-          if (!prices.length) continue;
-          allMatchCids.push(m.conditionId);
-          if (q.includes('sinner') && !sinnerMkt) sinnerMkt = { question:m.question, conditionId:m.conditionId||'', yesPrice:prices[0]||0, volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||0) };
-          if (q.includes('alcaraz') && !alcarazMkt) alcarazMkt = { question:m.question, conditionId:m.conditionId||'', yesPrice:prices[0]||0, volume:parseFloat(m.volume||0), volume24hr:parseFloat(m.volume24hr||0) };
-        }
-      }
-    }
-
-    if (!sinnerMkt && !alcarazMkt) return res.json({ found: false });
-
-    // Match trades
-    await cached('fetch-merge', fetchAndMerge, 15000);
-    const pool = todayTrades();
-    const targetCids = new Set(allMatchCids.filter(Boolean));
-
-    const sinnerTrades = [], alcarazTrades = [], otherTrades = [];
-    const sinnerWallets = new Set(), alcarazWallets = new Set();
-    let sinnerVol = 0, alcarazVol = 0;
-
-    // For the head-to-head market, both players share the same conditionId
-    // We distinguish by outcome name
-    const mainCid = sinnerMkt?.conditionId;
-    for (const t of pool) {
-      if (!targetCids.has(t.conditionId)) continue;
-      const trade = fmtTrade(t);
-      trade.flag = trade.usd >= 50000 ? '🚨' : trade.usd >= 10000 ? '🐳' : trade.usd >= 1000 ? '🎾' : '';
-      const out = (trade.outcome||'').toLowerCase();
-      const title = (trade.title||'').toLowerCase();
-
-      if (out.includes('sinner') || (trade.side==='BUY' && !out.includes('alcaraz') && title.includes('sinner'))) {
-        sinnerTrades.push(trade); sinnerWallets.add(trade.fullWallet); sinnerVol += trade.usd;
-      } else if (out.includes('alcaraz') || title.includes('alcaraz')) {
-        alcarazTrades.push(trade); alcarazWallets.add(trade.fullWallet); alcarazVol += trade.usd;
-      } else {
-        otherTrades.push(trade);
-      }
-      if (trade.usd >= 10000) checkNotify(t);
-    }
-    sinnerTrades.sort((a,b) => b.usd-a.usd);
-    alcarazTrades.sort((a,b) => b.usd-a.usd);
-    otherTrades.sort((a,b) => b.usd-a.usd);
-
-    // Sharp money verdict
-    let verdict = 'No clear consensus';
-    if (sinnerWallets.size > alcarazWallets.size + 1) verdict = 'Sharp Money on: SINNER';
-    else if (alcarazWallets.size > sinnerWallets.size + 1) verdict = 'Sharp Money on: ALCARAZ';
-    else if (sinnerVol > alcarazVol * 1.5) verdict = 'Sharp Money on: SINNER (by volume)';
-    else if (alcarazVol > sinnerVol * 1.5) verdict = 'Sharp Money on: ALCARAZ (by volume)';
-
-    // Previous odds for movement
-    const prevKey = 'featured-prev-odds';
-    const prev = cache.get(prevKey)?.data || {};
-    const sinnerDelta = prev.sinner != null ? (sinnerMkt?.yesPrice||0) - prev.sinner : 0;
-    const alcarazDelta = prev.alcaraz != null ? (alcarazMkt?.yesPrice||0) - prev.alcaraz : 0;
-    cache.set(prevKey, { data: { sinner: sinnerMkt?.yesPrice||0, alcaraz: alcarazMkt?.yesPrice||0 }, ts: Date.now() });
-
-    res.json({
-      found: true, eventTitle,
-      sinner: { ...sinnerMkt, trades: consolidateTrades(sinnerTrades).slice(0,15), wallets: sinnerWallets.size, totalVol: sinnerVol, delta: parseFloat(sinnerDelta.toFixed(4)) },
-      alcaraz: { ...alcarazMkt, trades: consolidateTrades(alcarazTrades).slice(0,15), wallets: alcarazWallets.size, totalVol: alcarazVol, delta: parseFloat(alcarazDelta.toFixed(4)) },
-      otherTrades: consolidateTrades(otherTrades).slice(0,10),
-      extraMarkets: extraMarkets.slice(0,8),
-      verdict, totalVolume: (sinnerMkt?.volume||0) + (alcarazMkt?.volume||0),
-      totalVol24: (sinnerMkt?.volume24hr||0) + (alcarazMkt?.volume24hr||0)
-    });
-  } catch(e) { res.status(502).json({error:e.message}); }
-});
+// (featured match removed)
 
 // ── NOTIFICATIONS ────────────────────────────────────────────────────────────
 const notified = new Set();
@@ -550,126 +434,88 @@ app.get('/api/allwhales', async (req, res) => {
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 
-// ── WALLETS ──────────────────────────────────────────────────────────────────
-app.get('/api/wallets', async (req, res) => {
-  try {
-    await cached('fetch-merge', fetchAndMerge, 15000);
-    const wallets = new Map();
-    for (const t of todayTrades()) {
-      const addr = t.proxyWallet; if (!addr) continue;
-      const usd = parseFloat(t.size||0)*parseFloat(t.price||0);
-      const w = wallets.get(addr)||{address:addr, short:addr.slice(0,5)+'…'+addr.slice(-3), pseudonym:t.pseudonym||'', volume:0, trades:0, biggest:0, buys:0, sells:0, recentBets:[]};
-      w.volume+=usd; w.trades++; w.biggest=Math.max(w.biggest,usd);
-      if ((t.side||'').toUpperCase()==='BUY') w.buys++; else w.sells++;
-      if (w.recentBets.length<5) w.recentBets.push({title:(t.title||'').slice(0,40), usd, side:(t.side||'BUY').toUpperCase(), outcome:t.outcome||'?', odds:parseFloat(t.price||0)});
-      wallets.set(addr,w);
-    }
-    res.json(Array.from(wallets.values()).sort((a,b)=>b.volume-a.volume).slice(0,10));
-  } catch(e) { res.status(502).json({error:e.message}); }
-});
-
-// ── SMART MONEY ──────────────────────────────────────────────────────────────
+// ── SMART MONEY / WALLET P&L ─────────────────────────────────────────────────
 const WATCHLIST_FILE = path.join(__dirname, 'watchlist.json');
-function loadWatchlist() {
-  try { return fs.existsSync(WATCHLIST_FILE) ? JSON.parse(fs.readFileSync(WATCHLIST_FILE,'utf8')) : []; }
-  catch { return []; }
-}
-function saveWatchlist(list) {
-  try { fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list)); } catch {}
-}
+function loadWatchlist() { try { return fs.existsSync(WATCHLIST_FILE) ? JSON.parse(fs.readFileSync(WATCHLIST_FILE,'utf8')) : []; } catch { return []; } }
+function saveWatchlist(list) { try { fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(list)); } catch {} }
 
-// Leaderboard + positions + activity for top wallets
 app.get('/api/smart-money', async (req, res) => {
   try {
-    // 1. Fetch sports leaderboard
     const lb = await cached('sm-leaderboard', async () => {
       const r = await fetch('https://data-api.polymarket.com/v1/leaderboard?category=SPORTS&timePeriod=MONTH&orderBy=PNL&limit=25');
-      if (!r.ok) throw new Error('Leaderboard API ' + r.status);
+      if (!r.ok) throw new Error('Leaderboard API '+r.status);
       return r.json();
-    }, 300000); // 5 min cache
+    }, 300000);
 
-    // 2. For top 10, fetch positions + recent activity in parallel
-    const topWallets = lb.slice(0, 10);
-    const details = await Promise.all(topWallets.map(async (w, i) => {
+    // Fetch positions + activity for ALL 25 wallets
+    const details = await Promise.all(lb.map(async (w) => {
       const addr = w.proxyWallet;
-      const cacheKey = `sm-detail-${addr}`;
-      return cached(cacheKey, async () => {
+      return cached(`sm-${addr}`, async () => {
         const [posRes, actRes] = await Promise.allSettled([
-          fetch(`https://data-api.polymarket.com/positions?user=${addr}&limit=10&sizeThreshold=0.1`).then(r => r.ok ? r.json() : []),
-          fetch(`https://data-api.polymarket.com/activity?user=${addr}&limit=10`).then(r => r.ok ? r.json() : [])
+          fetch(`https://data-api.polymarket.com/positions?user=${addr}&limit=20&sizeThreshold=0.1`).then(r=>r.ok?r.json():[]),
+          fetch(`https://data-api.polymarket.com/activity?user=${addr}&limit=15`).then(r=>r.ok?r.json():[])
         ]);
-        const positions = (posRes.status === 'fulfilled' ? posRes.value : []).filter(Array.isArray(posRes.value) ? () => true : () => false);
-        const posArr = Array.isArray(posRes.status === 'fulfilled' ? posRes.value : []) ? (posRes.value || []) : [];
-        const actArr = Array.isArray(actRes.status === 'fulfilled' ? actRes.value : []) ? (actRes.value || []) : [];
+        const posArr = Array.isArray(posRes.value) ? posRes.value : [];
+        const actArr = Array.isArray(actRes.value) ? actRes.value : [];
 
-        // Score: blend of PnL, rank, volume
-        const pnl = parseFloat(w.pnl || 0);
-        const vol = parseFloat(w.vol || 0);
-        const rank = parseInt(w.rank || 999);
+        const pnl = parseFloat(w.pnl||0);
+        const vol = parseFloat(w.vol||0);
+        const rank = parseInt(w.rank||999);
 
-        // Compute win rate from positions
-        const settled = posArr.filter(p => parseFloat(p.curPrice||0) === 0 || parseFloat(p.curPrice||0) === 1);
+        // Win rate from settled positions
+        const settled = posArr.filter(p => {
+          const cp = parseFloat(p.curPrice||0);
+          return cp === 0 || cp === 1 || parseFloat(p.redeemable||0) > 0;
+        });
         const wins = settled.filter(p => parseFloat(p.cashPnl||0) > 0).length;
-        const winRate = settled.length > 0 ? wins / settled.length : 0;
+        const winRate = settled.length > 0 ? wins/settled.length : 0;
+        const roi = vol > 0 ? (pnl/vol)*100 : 0;
 
-        // Open positions with PnL
+        // Open positions
         const openPositions = posArr
-          .filter(p => parseFloat(p.size||0) > 0.1 && parseFloat(p.curPrice||0) > 0 && parseFloat(p.curPrice||0) < 1)
+          .filter(p => parseFloat(p.size||0)>0.1 && parseFloat(p.curPrice||0)>0 && parseFloat(p.curPrice||0)<1)
           .map(p => ({
-            title: (p.title||'').slice(0,50),
-            outcome: p.outcome || '?',
-            size: parseFloat(p.size||0),
-            avgPrice: parseFloat(p.avgPrice||0),
-            curPrice: parseFloat(p.curPrice||0),
-            currentValue: parseFloat(p.currentValue||0),
-            cashPnl: parseFloat(p.cashPnl||0),
-            percentPnl: parseFloat(p.percentPnl||0)
+            title:(p.title||'').slice(0,55), outcome:p.outcome||'?',
+            size:parseFloat(p.size||0), avgPrice:parseFloat(p.avgPrice||0),
+            curPrice:parseFloat(p.curPrice||0), currentValue:parseFloat(p.currentValue||0),
+            cashPnl:parseFloat(p.cashPnl||0), percentPnl:parseFloat(p.percentPnl||0)
           }))
-          .sort((a,b) => Math.abs(b.cashPnl) - Math.abs(a.cashPnl))
-          .slice(0, 8);
+          .sort((a,b) => Math.abs(b.size*b.curPrice)-Math.abs(a.size*a.curPrice))
+          .slice(0,15);
 
         // Recent trades
-        const recentTrades = actArr
-          .filter(a => a.type === 'TRADE')
-          .map(a => ({
-            title: (a.title||'').slice(0,45),
-            side: (a.side||'BUY').toUpperCase(),
-            outcome: a.outcome || '?',
-            usd: parseFloat(a.usdcSize||0),
-            price: parseFloat(a.price||0),
-            timestamp: parseInt(a.timestamp||0),
-            verified: !!a.transactionHash
-          }))
-          .slice(0, 10);
+        const recentTrades = actArr.filter(a=>a.type==='TRADE').map(a=>({
+          title:(a.title||'').slice(0,50), side:(a.side||'BUY').toUpperCase(),
+          outcome:a.outcome||'?', usd:parseFloat(a.usdcSize||0),
+          price:parseFloat(a.price||0), timestamp:parseInt(a.timestamp||0),
+          verified:!!a.transactionHash
+        })).slice(0,15);
 
-        const openPnl = openPositions.reduce((s,p) => s+p.cashPnl, 0);
-        const finalScore = (pnl / 1000) + (winRate * 50) + (100 / Math.max(rank, 1));
+        const openPnl = openPositions.reduce((s,p)=>s+p.cashPnl,0);
+
+        // Sharp rating
+        let rating='📊 AVERAGE', ratingClass='avg';
+        if (rank<=5 && winRate>=0.60) { rating='🔥 ELITE'; ratingClass='elite'; }
+        else if (pnl>0 && winRate>=0.55) { rating='⚡ SHARP'; ratingClass='sharp'; }
+        else if (pnl<-10000) { rating='❌ FADE'; ratingClass='fade'; }
 
         return {
-          rank, address: addr,
-          short: addr.slice(0,6)+'…'+addr.slice(-4),
-          pseudonym: w.userName && !w.userName.startsWith('0x') ? w.userName : '',
-          pnl, vol, winRate, settledCount: settled.length,
-          openCashPnl: openPnl,
-          finalScore: parseFloat(finalScore.toFixed(2)),
-          lowSample: settled.length < 10,
+          rank, address:addr, short:addr.slice(0,6)+'…'+addr.slice(-4),
+          pseudonym: w.userName&&!w.userName.startsWith('0x')?w.userName:'',
+          pnl, vol, winRate, roi:parseFloat(roi.toFixed(2)),
+          settledCount:settled.length, openCashPnl:openPnl,
+          rating, ratingClass,
+          lowSample:settled.length<10,
           openPositions, recentTrades
         };
-      }, 300000); // cache per wallet 5 min
+      }, 300000);
     }));
 
-    // Sort by final score
-    details.sort((a,b) => b.finalScore - a.finalScore);
+    // Sort: elite first, then by PnL
+    const order = {elite:0,sharp:1,avg:2,fade:3};
+    details.sort((a,b) => (order[a.ratingClass]||2)-(order[b.ratingClass]||2) || b.pnl-a.pnl);
 
-    // Watchlist
-    const watchlist = loadWatchlist();
-
-    res.json({ wallets: details, fullLeaderboard: lb.map(w => ({
-      rank: parseInt(w.rank), address: w.proxyWallet,
-      short: w.proxyWallet.slice(0,6)+'…'+w.proxyWallet.slice(-4),
-      pseudonym: w.userName && !w.userName.startsWith('0x') ? w.userName : '',
-      pnl: parseFloat(w.pnl||0), vol: parseFloat(w.vol||0)
-    })), watchlist });
+    res.json({ wallets:details, watchlist:loadWatchlist() });
   } catch(e) { res.status(502).json({error:e.message}); }
 });
 

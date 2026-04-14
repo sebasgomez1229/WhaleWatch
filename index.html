@@ -73,7 +73,6 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
     <span id="cd" style="font-variant-numeric:tabular-nums;font-size:10px;color:#4a6070">30s</span>
   </div>
 </div>
-<div id="featured" style="display:none"></div>
 <div class="sum">
   <div class="sc"><div class="sl">Today Volume</div><div class="sv" id="sv1">—</div><div class="ss" id="ss1">—</div></div>
   <div class="sc"><div class="sl">Biggest Bet</div><div class="sv" id="sv2">—</div><div class="ss" id="ss2">—</div></div>
@@ -158,63 +157,12 @@ function TR(t){
 async function refresh(){
   $('dot').classList.remove('live');
   lastRefreshMs=Date.now();
-  await Promise.allSettled([loadFeatured(),loadSummary(),loadMLB(),...['nhl','nba','golf','ucl','war'].map(loadSport),loadWhales(),loadSmart()]);
+  await Promise.allSettled([loadSummary(),loadMLB(),...['nhl','nba','golf','ucl','war'].map(loadSport),loadWhales(),loadSmart()]);
   $('dot').classList.add('live');cd=30;
 }
 function loadAll(){loadMLB();['nhl','nba','golf','ucl','war'].forEach(loadSport);loadWhales();}
 
-// ── FEATURED MATCH ──
-async function loadFeatured(){
-  try{
-    const d=await(await fetch(`/api/featured?_=${Date.now()}`)).json();
-    const el=$('featured');
-    if(!d.found){el.style.display='none';return;}
-    el.style.display='block';
 
-    const s=d.sinner||{}, a=d.alcaraz||{};
-    const sp=(s.yesPrice*100).toFixed(1), ap=(a.yesPrice*100).toFixed(1);
-    const sd=s.delta, ad=a.delta;
-    const sdStr=sd?` <span style="color:${sd>0?'#39ff14':'#ff3366'}">${sd>0?'▲':'▼'}${Math.abs(sd*100).toFixed(1)}pp</span>`:'';
-    const adStr=ad?` <span style="color:${ad>0?'#39ff14':'#ff3366'}">${ad>0?'▲':'▼'}${Math.abs(ad*100).toFixed(1)}pp</span>`:'';
-
-    // Verdict color
-    const vc=d.verdict.includes('SINNER')?'#00e5ff':d.verdict.includes('ALCARAZ')?'#ff6b35':'#4a6070';
-
-    function featTR(t){
-      const ac=t.usd>=50000?'h':t.usd>=10000?'b':'r';
-      const name=E(t.pseudonym||t.wallet);
-      const pay=t.payout>0?` — potential win: ${F(t.payout)}`:'';
-      const con=t.consolidated>1?` <span style="color:#ff6b35">(${t.consolidated} bets)</span>`:'';
-      const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
-      return`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a2530;font-size:10px"><div style="flex:1"><span>${t.flag||'·'}</span> <span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span> <b>${E(t.outcome)}</b> at ${(t.odds*100).toFixed(0)}¢ — <b style="color:#00e5ff">${D(t.usd)}</b> — ${name}${pay}${con}</div><div style="text-align:right;min-width:55px"><b class="ta ${ac}">${F(t.usd)}</b><div style="font-size:7px;color:#4a6070">${ts}</div></div></div>`;
-    }
-
-    const sinnerTrades=s.trades||[], alcarazTrades=a.trades||[];
-
-    el.innerHTML=`<div style="background:linear-gradient(135deg,#0a1020,#0e1318);border:2px solid #ffd700;margin:0;padding:14px 18px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px">
-        <div><span style="font-size:16px">🎾</span> <span style="font-size:14px;font-weight:bold;color:#ffd700;letter-spacing:2px">FEATURED MATCH</span><div style="font-size:10px;color:#4a6070;margin-top:2px">${E(d.eventTitle)} — Monte Carlo Masters Final</div></div>
-        <div style="text-align:right"><div style="font-size:10px;color:#4a6070">Total Vol: ${F(d.totalVolume)} · 24h: ${F(d.totalVol24)}</div></div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;margin-bottom:12px">
-        <div style="text-align:center"><div style="font-size:20px;font-weight:bold;color:#00e5ff">${E('Jannik Sinner')}</div><div style="font-size:28px;font-weight:bold;color:#39ff14">${sp}%${sdStr}</div><div style="font-size:9px;color:#4a6070">${s.wallets||0} wallets · ${F(s.totalVol||0)} vol</div></div>
-        <div style="font-size:12px;color:#4a6070;font-weight:bold">VS</div>
-        <div style="text-align:center"><div style="font-size:20px;font-weight:bold;color:#ff6b35">${E('Carlos Alcaraz')}</div><div style="font-size:28px;font-weight:bold;color:#39ff14">${ap}%${adStr}</div><div style="font-size:9px;color:#4a6070">${a.wallets||0} wallets · ${F(a.totalVol||0)} vol</div></div>
-      </div>
-
-      <div style="display:flex;height:20px;border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="width:${sp}%;background:rgba(0,229,255,.25);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;color:#00e5ff">Sinner ${sp}%</div><div style="width:${ap}%;background:rgba(255,107,53,.25);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;color:#ff6b35">Alcaraz ${ap}%</div></div>
-
-      <div style="text-align:center;padding:6px;background:rgba(255,215,0,.08);border:1px solid #ffd700;border-radius:3px;margin-bottom:10px"><span style="font-size:11px;font-weight:bold;color:${vc}">🧠 ${E(d.verdict)}</span></div>
-
-      ${sinnerTrades.length?`<div style="margin-bottom:8px"><div style="font-size:9px;color:#00e5ff;letter-spacing:1px;font-weight:bold;margin-bottom:4px">SINNER TRADES (${sinnerTrades.length})</div>${sinnerTrades.map(featTR).join('')}</div>`:''}
-      ${alcarazTrades.length?`<div><div style="font-size:9px;color:#ff6b35;letter-spacing:1px;font-weight:bold;margin-bottom:4px">ALCARAZ TRADES (${alcarazTrades.length})</div>${alcarazTrades.map(featTR).join('')}</div>`:''}
-      ${(d.otherTrades||[]).length?`<div style="margin-top:8px"><div style="font-size:9px;color:#ffd700;letter-spacing:1px;font-weight:bold;margin-bottom:4px">O/U + PROPS TRADES (${d.otherTrades.length})</div>${d.otherTrades.map(featTR).join('')}</div>`:''}
-      ${(d.extraMarkets||[]).length?`<div style="margin-top:8px;border-top:1px solid #1a2530;padding-top:6px"><div style="font-size:9px;color:#4a6070;letter-spacing:1px;margin-bottom:4px">MATCH PROPS</div>${d.extraMarkets.map(m=>`<div style="display:flex;justify-content:space-between;font-size:9px;padding:2px 0;border-bottom:1px solid #0a0e14"><span style="color:#e0eaf0">${E(m.question).slice(0,50)}</span><span style="color:#39ff14;font-weight:bold">${(m.prices[0]*100).toFixed(0)}% / ${(m.prices[1]*100).toFixed(0)}%</span><span style="color:#4a6070">${F(m.volume)}</span></div>`).join('')}</div>`:''}
-      ${!sinnerTrades.length&&!alcarazTrades.length&&!(d.otherTrades||[]).length?'<div style="font-size:10px;color:#4a6070;text-align:center;padding:8px">No whale trades yet — watching for $1K+ bets</div>':''}
-    </div>`;
-  }catch(e){$('featured').style.display='none';}
-}
 
 // ── SUMMARY ──
 async function loadSummary(){
@@ -442,7 +390,7 @@ async function loadWhales(){
   }catch(e){if(whalesFirstLoad)$('s-whales').innerHTML=`<div class="empty">Error: ${E(e.message)}</div>`;}
 }
 
-// ── SMART MONEY ──
+// ── SMART MONEY / WALLET P&L ──
 let smWatchlist=[];
 async function loadSmart(){
   const el=$('s-smart'); if(!el)return;
@@ -450,54 +398,78 @@ async function loadSmart(){
     const d=await(await fetch('/api/smart-money')).json();
     if(d.error)throw new Error(d.error);
     const wallets=d.wallets||[];
-    const lb=d.fullLeaderboard||[];
     smWatchlist=d.watchlist||[];
     $('n-smart').textContent=wallets.length;
 
-    let html='';
+    const rColors={elite:'#ffd700',sharp:'#00e5ff',avg:'#4a6070',fade:'#ff3366'};
+    const rBorders={elite:'border-left:3px solid #ffd700',sharp:'border-left:3px solid #00e5ff',avg:'',fade:'border-left:3px solid #ff3366'};
 
-    // Leaderboard summary
-    if(lb.length){
-      html+=`<div style="margin-bottom:12px"><div style="font-size:10px;color:#ffd700;letter-spacing:2px;font-weight:bold;margin-bottom:6px">🏆 SPORTS LEADERBOARD — TOP 25 BY PNL THIS MONTH</div>`;
-      html+=lb.map((w,i)=>{
-        const medals=['🥇','🥈','🥉'];
-        const rc=i<3?'#ffd700':i<10?'#00e5ff':'#4a6070';
-        return`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #0a0e14;font-size:10px"><span style="color:${rc};min-width:28px">${medals[i]||'#'+(i+1)}</span><span style="color:#e0eaf0;font-weight:bold;flex:1">${E(w.pseudonym||w.short)}</span><span style="color:${w.pnl>=0?'#39ff14':'#ff3366'};font-weight:bold;min-width:80px;text-align:right">${w.pnl>=0?'+':''}${F(w.pnl)}</span><span style="color:#4a6070;min-width:70px;text-align:right">${F(w.vol)} vol</span></div>`;
-      }).join('')+'</div>';
-    }
+    let html=`<div style="font-size:10px;color:#ffd700;letter-spacing:2px;font-weight:bold;margin-bottom:10px">🏆 SPORTS WALLET P&L — TOP 25 THIS MONTH</div>`;
 
-    // Detailed wallet cards
     html+=wallets.map((w,i)=>{
       const onWL=smWatchlist.includes(w.address);
       const wlBtn=`<button onclick="event.stopPropagation();toggleWatch('${w.address}')" style="background:${onWL?'#ff6b35':'transparent'};border:1px solid ${onWL?'#ff6b35':'#4a6070'};color:${onWL?'#080c10':'#4a6070'};padding:2px 8px;cursor:pointer;font-family:monospace;font-size:8px;border-radius:2px">${onWL?'★ FOLLOWING':'☆ FOLLOW'}</button>`;
-      const wr=w.winRate*100;
-      const warn=w.lowSample?'<span style="color:#ff6b35;font-size:8px;margin-left:4px">⚠ low sample</span>':'';
+      const wr=(w.winRate*100).toFixed(0);
+      const warn=w.lowSample?'<span style="color:#ff6b35;font-size:7px;margin-left:3px">⚠ low sample</span>':'';
+      const pnlC=w.pnl>=0?'#39ff14':'#ff3366';
+      const openC=w.openCashPnl>=0?'#39ff14':'#ff3366';
+      const rc=rColors[w.ratingClass]||'#4a6070';
+      const rb=rBorders[w.ratingClass]||'';
+      const bgTier=w.ratingClass==='elite'?'background:rgba(255,215,0,.04)':w.ratingClass==='fade'?'background:rgba(255,51,102,.04)':'';
+      const wid='sm-'+i;
 
-      // Score display
-      let scoreHtml=`<div style="display:flex;gap:12px;font-size:9px;color:#4a6070;margin:6px 0;flex-wrap:wrap"><span>Score: <b style="color:#ffd700">${w.finalScore.toFixed(0)}</b></span><span>PnL: <b style="color:${w.pnl>=0?'#39ff14':'#ff3366'}">${w.pnl>=0?'+':''}${F(w.pnl)}</b></span><span>Open PnL: <b style="color:${w.openCashPnl>=0?'#39ff14':'#ff3366'}">${w.openCashPnl>=0?'+':''}${F(w.openCashPnl)}</b></span><span>Win: <b style="color:#e0eaf0">${wr.toFixed(0)}%</b> (${w.settledCount} settled)${warn}</span><span>Vol: <b>${F(w.vol)}</b></span></div>`;
+      // Stats row
+      const stats=`<div style="display:flex;gap:10px;font-size:9px;color:#4a6070;margin:6px 0;flex-wrap:wrap">
+        <span style="color:${rc};font-weight:bold">${w.rating}</span>
+        <span>PnL: <b style="color:${pnlC}">${w.pnl>=0?'+':''}${F(w.pnl)}</b></span>
+        <span>Open: <b style="color:${openC}">${w.openCashPnl>=0?'+':''}${F(w.openCashPnl)}</b></span>
+        <span>Win: <b style="color:#e0eaf0">${wr}%</b> (${w.settledCount})${warn}</span>
+        <span>ROI: <b style="color:${w.roi>=0?'#39ff14':'#ff3366'}">${w.roi>=0?'+':''}${w.roi.toFixed(1)}%</b></span>
+        <span>Vol: <b>${F(w.vol)}</b></span>
+      </div>`;
 
-      // Open positions
-      let posHtml='';
-      if(w.openPositions.length){
-        posHtml=`<div style="margin-top:6px"><div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin-bottom:3px">OPEN POSITIONS (${w.openPositions.length})</div>${w.openPositions.map(p=>{
-          const pnlColor=p.cashPnl>=0?'#39ff14':'#ff3366';
-          const pnlSign=p.cashPnl>=0?'+':'';
-          return`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #0a0e14;font-size:9px"><span style="color:#e0eaf0;flex:1">${E(p.title)} · <b>${E(p.outcome)}</b></span><span style="color:#4a6070;margin:0 8px">size: ${F(p.size)} · avg: ${(p.avgPrice*100).toFixed(0)}¢ · now: ${(p.curPrice*100).toFixed(0)}¢</span><span style="color:${pnlColor};font-weight:bold;min-width:60px;text-align:right">${pnlSign}${F(p.cashPnl)}</span></div>`;
-        }).join('')}</div>`;
+      // Clickable positions + trades
+      const posCount=w.openPositions.length;
+      const trdCount=w.recentTrades.length;
+      let detail='';
+      if(posCount||trdCount){
+        detail+=`<div id="${wid}" style="display:none;margin-top:6px">`;
+        if(posCount){
+          detail+=`<div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin-bottom:3px">OPEN POSITIONS (${posCount})</div>`;
+          detail+=w.openPositions.map(p=>{
+            const pc=p.cashPnl>=0?'#39ff14':'#ff3366';
+            const ps=p.cashPnl>=0?'+':'';
+            const val=p.size*p.curPrice;
+            return`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #0a0e14;font-size:9px;gap:4px">
+              <span style="color:#e0eaf0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${E(p.title)} · <b>${E(p.outcome)}</b></span>
+              <span style="color:#4a6070;white-space:nowrap">size: ${F(p.size)} · avg: ${(p.avgPrice*100).toFixed(0)}¢ · now: ${(p.curPrice*100).toFixed(0)}¢ · val: ${F(val)}</span>
+              <span style="color:${pc};font-weight:bold;min-width:55px;text-align:right">${ps}${F(p.cashPnl)}</span>
+            </div>`;
+          }).join('');
+        }
+        if(trdCount){
+          detail+=`<div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin:6px 0 3px">RECENT TRADES (${trdCount})</div>`;
+          detail+=w.recentTrades.map(t=>{
+            const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
+            const v=t.verified?'<span style="color:#39ff14;font-size:7px"> ✓</span>':'';
+            return`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #0a0e14;font-size:9px">
+              <span><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span> ${E(t.outcome)} · ${E(t.title)}${v}</span>
+              <span style="color:#4a6070;white-space:nowrap">${D(t.usd)} @${(t.price*100).toFixed(0)}¢ · ${ts}</span>
+            </div>`;
+          }).join('');
+        }
+        detail+=`</div>`;
       }
-
-      // Recent trades
-      let tradesHtml='';
-      if(w.recentTrades.length){
-        tradesHtml=`<div style="margin-top:6px"><div style="font-size:8px;color:#4a6070;letter-spacing:1px;margin-bottom:3px">RECENT TRADES (${w.recentTrades.length})</div>${w.recentTrades.map(t=>{
-          const ts=t.timestamp?new Date(t.timestamp*1000).toLocaleTimeString():'';
-          const vBadge=t.verified?'<span style="color:#39ff14;font-size:7px">✓</span>':'';
-          return`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #0a0e14;font-size:9px"><span><span class="${t.side==='BUY'?'buy':'sell'}">${t.side}</span> ${E(t.outcome)} · ${E(t.title)} ${vBadge}</span><span style="color:#4a6070">${D(t.usd)} @${(t.price*100).toFixed(0)}¢ · ${ts}</span></div>`;
-        }).join('')}</div>`;
-      }
+      const expandLabel=posCount+trdCount>0?`<div style="font-size:8px;color:#4a6070;cursor:pointer;margin-top:4px" onclick="event.stopPropagation();$('${wid}').style.display=$('${wid}').style.display==='none'?'block':'none'">▼ ${posCount} positions · ${trdCount} trades — click to expand</div>`:'';
 
       const medals=['🥇','🥈','🥉'];
-      return`<div class="mc" style="cursor:default;padding:12px 14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><span style="font-size:14px;margin-right:4px">${medals[i]||(i+1)}</span><b style="font-size:13px;color:#e0eaf0">${E(w.pseudonym||w.short)}</b><div style="font-size:8px;color:#4a6070">${w.address.slice(0,10)}…${w.address.slice(-6)}</div></div><div style="text-align:right">${wlBtn}<div style="font-size:16px;font-weight:bold;color:${w.pnl>=0?'#39ff14':'#ff3366'};margin-top:2px">${w.pnl>=0?'+':''}${F(w.pnl)}</div></div></div>${scoreHtml}${posHtml}${tradesHtml}</div>`;
+      return`<div class="mc" style="cursor:default;padding:12px 14px;margin-bottom:8px;${rb};${bgTier}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div><span style="font-size:13px;margin-right:3px">${medals[i]||'#'+(i+1)}</span><b style="font-size:12px;color:#e0eaf0">${E(w.pseudonym||w.short)}</b><div style="font-size:8px;color:#4a6070">${w.address.slice(0,10)}…${w.address.slice(-6)}</div></div>
+          <div style="text-align:right">${wlBtn}<div style="font-size:16px;font-weight:bold;color:${pnlC};margin-top:2px">${w.pnl>=0?'+':''}${F(w.pnl)}</div></div>
+        </div>
+        ${stats}${expandLabel}${detail}
+      </div>`;
     }).join('');
 
     el.innerHTML=html||'<div class="empty">No smart money data</div>';
